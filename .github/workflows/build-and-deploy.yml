@@ -1,0 +1,161 @@
+name: build-and-deploy
+
+# Build, scan y deploy de los dos containers (mcp-server, web).
+# - Validate corre en cada push y PR (typecheck + build local).
+# - Build/scan corre en cada push y PR (docker build + trivy).
+# - Deploy a Azure solo en push a main (requiere OIDC).
+#
+# Variables de repo requeridas (Settings → Secrets and variables → Actions → Variables):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#   RESOURCE_GROUP, ACR_NAME, ACR_LOGIN_SERVER
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-server/**'
+      - 'web/**'
+      - '.github/workflows/build-and-deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mcp-server/**'
+      - 'web/**'
+      - '.github/workflows/build-and-deploy.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: 10.33.0
+  NODE_VERSION: 22
+
+jobs:
+  validate:
+    name: validate (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [mcp-server, web]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: ${{ matrix.package }}/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.package }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        working-directory: ${{ matrix.package }}
+        run: pnpm typecheck
+
+      - name: Build
+        working-directory: ${{ matrix.package }}
+        run: pnpm build
+
+  build-and-deploy:
+    name: build-and-deploy (${{ matrix.package }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: mcp-server
+            image: mcp-server
+            container_app_var: CONTAINER_APP_MCP
+          - package: web
+            image: web
+            container_app_var: CONTAINER_APP_WEB
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.package }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+      - name: Trivy scan (CRITICAL, HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+
+      - name: Azure login (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}"
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest"
+
+      - name: Resolve target Container App
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: target
+        run: echo "name=${{ vars[matrix.container_app_var] }}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Container App revision
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az containerapp update \
+            --name "${{ steps.target.outputs.name }}" \
+            --resource-group "${{ vars.RESOURCE_GROUP }}" \
+            --image "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}" \
+            --query "{name:name, latestRevision:properties.latestRevisionName}" \
+            --output table
+
+      - name: Verify revision health
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            STATE=$(az containerapp revision list \
+              --name "${{ steps.target.outputs.name }}" \
+              --resource-group "${{ vars.RESOURCE_GROUP }}" \
+              --query "[?properties.active].properties.healthState" \
+              --output tsv | head -1)
+            echo "attempt $attempt: healthState=$STATE"
+            if [ "$STATE" = "Healthy" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::revision did not reach Healthy after 60s"
+          exit 1

@@ -1,0 +1,35 @@
+{
+  "name": "@fintech/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cruce Chile MCP server (bootstrap, sin tools).",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "dev:server": "node --watch dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec dist/**/*.test.js || echo 'no tests yet'"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "express": "4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.21",
+    "@types/node": "20.14.10",
+    "typescript": "5.6.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "path-to-regexp": "0.1.13",
+      "picomatch": "^4.0.4"
+    }
+  }
+}

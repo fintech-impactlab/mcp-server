@@ -1,0 +1,73 @@
+# Secrets / credentials — NUNCA commitear
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+.azure/
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!*.tfvars.example
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# IDE / editor
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+
+# Bicep build artifacts
+*.bicep.json
+
+# Datos descargados de fuentes externas (se cachean en Azure Blob, no en repo)
+data/
+cache/
+*.xlsx
+*.csv
+!fixtures/**/*.xlsx
+!fixtures/**/*.csv
+
+# Personal Claude config
+.claude/
