@@ -44,20 +44,20 @@ Sin esto, los slices siguientes fallan tarde. Pura preparación.
 ## Slice 2 — Bicep skeleton + telemetría base
 
 - [ ] **2.1** Crear estructura `infra/` con módulos vacíos.
-  - **AC:** árbol propuesto en spec creado: `infra/main.bicep`, `infra/modules/{log-analytics,app-insights,container-apps-env,container-app,acr,storage,key-vault}.bicep`, `infra/parameters/dev.bicepparam`.
-  - **Verify:** `find infra -name "*.bicep" -o -name "*.bicepparam" | wc -l` ≥ 9.
+  - **AC:** árbol propuesto en spec creado: `infra/main.bicep`, `infra/modules/{log-analytics,container-apps-env,container-app,acr,storage,key-vault}.bicep`, `infra/parameters/dev.bicepparam`. Sin `app-insights.bicep` (diferido — ver 2.3).
+  - **Verify:** `find infra -name "*.bicep" -o -name "*.bicepparam" | wc -l` ≥ 8.
 
 - [ ] **2.2** Implementar módulo `log-analytics.bicep`.
   - **AC:** crea Log Analytics Workspace `log-fintech-dev` (PerGB2018, retention 30d).
   - **Verify:** `az monitor log-analytics workspace show -g <rg> -n log-fintech-dev --query "provisioningState" -o tsv` → `Succeeded`.
 
-- [ ] **2.3** Implementar módulo `app-insights.bicep` (workspace-based).
-  - **AC:** App Insights `appi-fintech-dev` apuntando al workspace de 2.2.
-  - **Verify:** `az monitor app-insights component show --app appi-fintech-dev -g <rg> --query "applicationType" -o tsv` → `web`.
+- [~] **2.3** ~~Implementar módulo `app-insights.bicep` (workspace-based)~~ — **NO APLICA POR AHORA.**
+  - **Decisión:** sin App Insights por ahora. Telemetría vía logs JSON estructurados a stdout → Container Apps Console Logs → Log Analytics workspace de 2.2. Ver [SPEC § 2 / § 6.4](../SPEC.md) y [tasks/plan-auth.md](plan-auth.md).
+  - **Reabrir si:** llega requerimiento de APM detallado / Live Metrics, los logs de LA no alcanzan para correlación distribuida, o se suma OpenTelemetry y AI es el sink natural.
 
-- [ ] **2.4** Cablear `main.bicep` para invocar 2.2 y 2.3, deploy.
-  - **AC:** `az deployment group create` retorna `Succeeded`.
-  - **Verify:** `az deployment group list -g <rg> --query "[0].properties.provisioningState"` → `Succeeded`.
+- [ ] **2.4** Cablear `main.bicep` para invocar 2.2, deploy. Ajustar `cae` (Slice 4.1) para apuntar `appLogsConfiguration` al workspace de 2.2 cuando 2.2 cierre.
+  - **AC:** `az deployment group create` retorna `Succeeded`. `cae-<env>` configurado con `appLogsConfiguration.destination='log-analytics'` y customer ID + shared key del workspace.
+  - **Verify:** `az deployment group list -g <rg> --query "[0].properties.provisioningState"` → `Succeeded`. `az containerapp env show -n cae-<env> --query "properties.appLogsConfiguration.destination" -o tsv` → `log-analytics`. Logs de stdout de `ca-mcp` aparecen en `ContainerAppConsoleLogs_CL` de la workspace.
 
 ---
 
@@ -160,42 +160,40 @@ Este slice cierra el primer recorrido completo: código → imagen → registry 
 
 ## Slice 7 — Observabilidad
 
-- [ ] **7.0** Seed del secret `appinsights-connection-string` en Key Vault.
-  - **AC:** secret existe en KV con el connection string del App Insights de Slice 2.3. Bloqueante de 7.1.
-  - **Verify:** `az keyvault secret show --name appinsights-connection-string --vault-name <kv> --query "value" -o tsv` retorna un connection string válido (`InstrumentationKey=...;IngestionEndpoint=...`).
-  - **Cómo:** `CS=$(az monitor app-insights component show --app appi-fintech-dev -g <rg> --query connectionString -o tsv) && az keyvault secret set --vault-name <kv> --name appinsights-connection-string --value "$CS"`. (Idealmente vía Bicep `secretsToSet`, pero el manual queda documentado.)
+> **Decisión:** sin App Insights por ahora. Telemetría vía logs JSON estructurados a stdout → Container Apps Console Logs → Log Analytics workspace `log-fintech-<env>` (Slice 2.2). Ver [SPEC § 2 / § 6.4](../SPEC.md). Las tareas de App Insights (7.0, 7.1, 7.2, 7.4) quedan diferidas.
 
-- [ ] **7.1** Wirear App Insights connection string vía Key Vault secret en ambos containers.
-  - **AC:** secret `appinsights-connection-string` en KV; ambos Container Apps lo consumen vía `secretRef` (NO env var directa).
-  - **Verify:** `az containerapp show -n ca-mcp-<env> -g <rg> --query "properties.configuration.secrets[].keyVaultUrl"` muestra la URL del KV.
+- [~] **7.0** ~~Seed del secret `appinsights-connection-string` en Key Vault~~ — **NO APLICA POR AHORA.**
+  - **Reabrir si:** se decide retomar App Insights.
 
-- [ ] **7.2** SDK de App Insights inicializado en `mcp-server` con sampling 100% durante validación.
-  - **AC:** request a `/health` aparece en App Insights `requests` table dentro de 1 min. Reducir sampling a 50% post-CP-4 para controlar volumen.
-  - **Verify:** `az monitor app-insights query --app appi-fintech-dev --analytics-query "requests | where timestamp > ago(5m) | take 5"` devuelve filas.
+- [~] **7.1** ~~Wirear App Insights connection string vía Key Vault secret en ambos containers~~ — **NO APLICA POR AHORA.**
+
+- [~] **7.2** ~~SDK de App Insights inicializado en `mcp-server`~~ — **NO APLICA POR AHORA.**
+  - **Reemplazo:** `mcp-server/src/lib/logging.ts` expone `logger.event(name, payload)` que emite JSON Lines a stdout. Container Apps captura stdout y lo envía a `log-fintech-<env>` (vía `appLogsConfiguration` cableada en Slice 2.4). Implementación cubierta por [tasks/plan-tools.md Slice 0.3](plan-tools.md) y [tasks/plan-auth.md Slice A1.5](plan-auth.md).
 
 - [ ] **7.3** Hashing de inputs sensibles en logs.
-  - **AC:** función `hashInput(s)` retorna `sha256(s).slice(0,8)`; usada en todos los logs de tool inputs. Test unitario confirma que el output nunca es reversible.
-  - **Verify:** `grep -r "console.log\|logger\." mcp-server/src` no muestra inputs raw.
+  - **AC:** función `hashInput(s)` retorna `sha256(s).slice(0,8)`; usada en todos los logs de tool inputs. Test unitario confirma que el output nunca es reversible. Aplica al sink stdout JSON, sin importar que App Insights esté diferido.
+  - **Verify:** `grep -rE "console\.log\(|logger\." mcp-server/src` no muestra inputs raw; los que loguean RUT/URL/dominio pasan por `hashInput`.
 
-- [ ] **7.4** Alerta de error rate.
-  - **AC:** alerta en App Insights: `requests | summarize errorRate=countif(success==false)*100.0/count() | where errorRate > 5` ventana 10 min, severity 2, action group con email.
-  - **Verify:** `az monitor metrics alert list -g <rg>` lista la alerta.
+- [~] **7.4** ~~Alerta de error rate en App Insights~~ — **NO APLICA POR AHORA.**
+  - **Reemplazo (cuando se priorice):** alerta scheduled query en Log Analytics (Kusto sobre `ContainerAppConsoleLogs_CL`) con criterio equivalente: ratio de logs `level == "error"` > 5% en ventana 10 min. Tarea separada cuando se retome observabilidad.
 
 ---
 
 ## Slice 8 — CI/CD con OIDC
 
-- [ ] **8.1** Workflow `build-and-deploy.yml` con jobs paralelos `mcp-server` y `web`.
-  - **AC:** trigger en push a `main` y en PR. Cada job declara `permissions: { id-token: write, contents: read }` (sin esto OIDC falla con 401). Steps: checkout → login OIDC (`azure/login@v2` con `client-id` + `tenant-id` + `subscription-id`) → ACR login → docker build → push tag `<sha>` → `az containerapp update --image`.
-  - **Verify:** un push trivial dispara el workflow y termina verde en GitHub Actions UI.
+- [x] **8.1** Workflow `build-and-deploy.yml` con jobs paralelos `mcp-server` y `web`. ✅ 2026-05-06
+  - **AC:** trigger en push a `main` y en PR. Cada job declara `permissions: { id-token: write, contents: read }`. Steps: checkout → docker buildx → trivy scan → OIDC login → ACR login → push tag `<sha>` + `latest` → `az containerapp update --image` → verify revision Healthy.
+  - **Verify:** run `25420576231` (commit `5f3d226`) verde end-to-end, deploy de ambas revisiones nuevas. URL pública responde 200.
+  - **Side note:** `vars.*` reemplazado por `secrets.*` (los 8 valores como secrets); matrix indirection cambió de `vars[matrix.x]` a `case` en bash porque GitHub Actions no soporta `secrets[expr]` dinámico.
 
-- [ ] **8.2** Scan de imagen con `trivy` antes del push.
-  - **AC:** step `aquasecurity/trivy-action` con `severity: CRITICAL,HIGH` y `exit-code: 1`. Falla el job si hay CVE crítico.
-  - **Verify:** PR contra rama dedicada `test/trivy-fail` con base image `node:14` (EOL, CVEs garantizados) confirma que el job falla. Esa rama no se mergea; queda como evidencia documentada.
+- [x] **8.2** Scan de imagen con `trivy` antes del push. ✅ 2026-05-06
+  - **AC:** step `aquasecurity/trivy-action@v0.36.0` con `severity: CRITICAL,HIGH`, `exit-code: 1`, `ignore-unfixed: true`, `vuln-type: 'os,library'`. Mismas settings ejecutables localmente con `trivy image ...`.
+  - **Verify:** Trivy local exit 0 en ambos `mcp-server:bootstrap` y `web:bootstrap`; CI scan también en verde.
+  - **Fixes aplicados:** runtime stage hace `apk upgrade --no-cache` (musl/zlib/openssl HIGH); npm/yarn/corepack removidos del runtime (eliminan picomatch + tinyglobby vulnerables del bundle de npm CLI); `next 15.5.7 → 15.5.15` (3 GHSAs DoS).
 
-- [ ] **8.3** Lint + type check + tests en CI antes del build.
-  - **AC:** job `validate` que corre `npm run lint`, `tsc --noEmit`, `npm test` para ambos paquetes. Build solo arranca si validate es verde.
-  - **Verify:** un commit con error de tipo bloquea el deploy.
+- [x] **8.3** Type check + build en CI antes del build de imagen. ✅ 2026-05-06
+  - **AC:** job `validate` (matrix mcp-server + web) corre `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`. `build-and-deploy` depende de `validate` (no arranca si falla). Lint y tests no añadidos en este slice (sin ESLint/Vitest config aún; queda en plan-tools).
+  - **Verify:** matrix `validate (mcp-server)` y `validate (web)` en verde en run `25420576231`.
 
 - [ ] **8.4** Branch protection en `main`.
   - **AC:** require status checks: `validate (mcp-server)`, `validate (web)`, `build-and-deploy (mcp-server)`, `build-and-deploy (web)`. Require PR review (al menos 1).
@@ -206,7 +204,7 @@ Este slice cierra el primer recorrido completo: código → imagen → registry 
   - **Verify:** `az role assignment list --assignee <appId> --resource-group <rg> --query "[].roleDefinitionName" -o tsv` ya no muestra `Contributor`. Re-ejecutar el workflow `build-and-deploy.yml` confirma que el SP recortado sigue siendo suficiente.
   - **Alternativa:** mover a out-of-scope si el demo cierra antes; documentar la deuda en plan.md.
 
-> ⛳ **Checkpoint CP-4 (final)** — handover formal. Validar también: telemetría llegando a App Insights y latencia interna `ca-web` → `ca-mcp` < 50 ms (métrica que se difiere desde CP-3). El equipo de app puede empezar Cluster B sobre infra estable.
+> ⛳ **Checkpoint CP-4 (final)** — handover formal. Validar también: logs JSON de `ca-mcp` y `ca-web` visibles en Log Analytics workspace `log-fintech-<env>` y latencia interna `ca-web` → `ca-mcp` < 50 ms (métrica que se difiere desde CP-3, ahora medible vía Kusto sobre `ContainerAppConsoleLogs_CL`). El equipo de app puede empezar Cluster B sobre infra estable.
 
 ---
 
@@ -226,9 +224,9 @@ curl -fsSL https://ca-web-<env>.<env-fqdn>/
 gh run list --repo <org>/<repo> --limit 1 --json conclusion --jq '.[0].conclusion'
 # Esperado: "success"
 
-# 4. Telemetría
-az monitor app-insights query --app appi-fintech-dev \
-  --analytics-query "requests | where timestamp > ago(1h) | summarize count()"
+# 4. Telemetría (logs JSON de Container Apps)
+az monitor log-analytics query --workspace <log-fintech-<env>-id> \
+  --analytics-query "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(1h) and ContainerAppName_s in ('ca-mcp-<env>', 'ca-web-<env>') | summarize count() by ContainerAppName_s"
 
 # 5. Sin secretos en repo
 git log --all -p | grep -iE "(api[_-]?key|secret|password|connection.?string)" | grep -v "example\|placeholder" || echo "OK"

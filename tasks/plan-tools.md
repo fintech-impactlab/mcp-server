@@ -33,7 +33,7 @@ Detalle completo en [SPEC.md § 2](../SPEC.md). Resumen:
 - Cron jobs (refresh CMF/RPSF/FinteChile): Container Apps Jobs separados con scale-to-zero (sumar al plan de infra cuando llegue Slice 4).
 - Secretos: Key Vault con `secretRef`, vía UAI `uai-mcp-<env>` (provisto por infra Slice 7.1).
 - Logging hasheado: helper `hashInput` (alineado con infra Slice 7.3).
-- Trazas: `applicationinsights` SDK (custom event canónico `tool.call`, ver SPEC § 6.4).
+- Telemetría: **logs JSON a stdout** → Container Apps → Log Analytics workspace `log-fintech-${env}`. Evento canónico `tool.call`, ver [SPEC § 6.4](../SPEC.md). App Insights queda diferido.
 
 ---
 
@@ -104,7 +104,7 @@ Detalle completo en [SPEC.md § 2](../SPEC.md). Resumen:
 | Checkpoint | Cuándo | Qué validar |
 |---|---|---|
 | **CP-A** | Después de Slice 1 | Patrón compartido + scoring listos. Todo test del motor de scoring verde. `SCORING.md` publicado. Sin esto, las tools posteriores no son auditables. |
-| **CP-B** | Después de Slice 2 | Primera tool end-to-end. `tools/list` MCP la expone, `tools/call` retorna respuesta válida con schema Zod. Trazas llegando a App Insights con input hasheado. Patrón confirmado para reuso. |
+| **CP-B** | Después de Slice 2 | Primera tool end-to-end. `tools/list` MCP la expone, `tools/call` retorna respuesta válida con schema Zod. Logs JSON `tool.call` visibles en Log Analytics con input hasheado. Patrón confirmado para reuso. |
 | **CP-C** | Después de Slice 5 | Etapa 1 completa (blacklist + whitelist). Caso de uso 2 del README (extensión de navegador, una sola consulta) ya viable. |
 | **CP-D** | Después de Slice 9 | Etapas 1-2-3 completas (8 tools). Caso de uso 5 del README (verificación periodística) viable end-to-end manualmente componiendo tools. |
 | **CP-E** | Después de Slice 13 | 11 tools + `full_evaluation`. Casos de uso 1, 4, 6 del README viables. Handover a equipo de cliente Next.js / extensión / app SMS. |
@@ -113,7 +113,7 @@ Detalle completo en [SPEC.md § 2](../SPEC.md). Resumen:
 
 ## Riesgos identificados
 
-- **Fragilidad de scraping.** CMF Alertas (XLSX), CMF RPSF, SII Situación Tributaria, dequienes.cl, NIC Chile, FinteChile, SERNAC no exponen API REST. Cualquier cambio del HTML rompe el parser silenciosamente. Mitigación: fixtures congelados + tests por parser + alertas en App Insights cuando un parser empieza a retornar 0 resultados sostenidamente.
+- **Fragilidad de scraping.** CMF Alertas (XLSX), CMF RPSF, SII Situación Tributaria, dequienes.cl, NIC Chile, FinteChile, SERNAC no exponen API REST. Cualquier cambio del HTML rompe el parser silenciosamente. Mitigación: fixtures congelados + tests por parser + alerta de Log Analytics (Kusto query schedulada) cuando un parser empieza a retornar 0 resultados sostenidamente.
 - **Rate limits de fuentes públicas.** Política del MCP es 1 req/s mínimo a fuentes scrapeadas. Mitigación: queue interno por fuente, cache Blob agresivo (TTL por tipo: tasas BCE 24h, leyes BCN 7d, RPSF 24h, CMF Alertas 24h con job programado), backoff exponencial.
 - **API keys con cuotas.** PhishTank, Google Safe Browsing tienen cuotas gratuitas limitadas. Mitigación: cache + degradación graceful (si la fuente está caída/cuota, el resto del verdict sigue funcionando con `data_unavailable: true` por fuente).
 - **Drift legal/regulatorio.** Catálogos de leyes, normativas CMF y canales de denuncia en `Slice 11-12` son código estático. Si cambia una ley o entra en vigencia una nueva (Ley 21.719 el 1 dic 2026), el catálogo queda desactualizado. Mitigación: cada entrada incluye `vigenciaDesde` y `vigenciaHasta`; CI corre check trimestral contra BCN.
@@ -152,10 +152,10 @@ curl -fsSL -X POST https://<ca-mcp-internal>/mcp/tools/call \
   | jq '.score, .reasons, .stoppedAt'
 # Esperado: score muy negativo, razón "blacklist hit", stoppedAt: "Etapa 1"
 
-# 4. Trazas en App Insights con input hasheado
-az monitor app-insights query --app appi-fintech-dev \
-  --analytics-query "customEvents | where name == 'tool.call' | take 10 | project name, customDimensions"
-# Esperado: customDimensions contiene 'inputHash' (8 hex), nunca el RUT/URL raw
+# 4. Logs `tool.call` en Log Analytics con input hasheado
+az monitor log-analytics query --workspace <log-fintech-${env}-id> \
+  --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.event == 'tool.call' | project log.inputHash, log.toolName, log.clientId | take 10"
+# Esperado: log.inputHash es hash de 8 hex, nunca el RUT/URL raw
 
 # 5. SCORING.md existe y cubre todas las reglas
 test -f SCORING.md && grep -c "^## " SCORING.md

@@ -48,7 +48,8 @@ Confirmado en `mcp-server/package.json` (bootstrap actual) y planeado para Clust
 | Format | `prettier` | ⏳ a sumar en Slice 0 | Default config, ancho 100. |
 | Cache externo | `@azure/storage-blob` + managed identity | ⏳ a sumar en Slice 0 | Containers `cache-cmf`, `cache-rpsf`, `audit` (provistos por infra Slice 3.2). Fallback in-memory en dev. |
 | Secrets | `@azure/identity` + `secretRef` en Container Apps | ⏳ Identity SDK a sumar; secretRef definido en infra Slice 7.1 | KV vía managed identity. Cero secretos en env vars de runtime. |
-| Telemetría | `applicationinsights` SDK | ⏳ a sumar en Slice 0 | Custom events `tool.call` con `inputHash`. App Insights provisto por infra Slice 7. |
+| Telemetría | **Logs JSON estructurados a stdout** → Container Apps Console Logs → Log Analytics workspace `log-fintech-${env}` (provisto por infra Slice 2.2). | ⏳ wrapper a sumar en Slice 0 | Sin SDK adicional, sin costo de ingestión App Insights. Queries vía `az monitor log-analytics query`. |
+| App Insights SDK | `applicationinsights` | ⏸ deferred | Decisión actual: no usar. La infra Slice 7 (App Insights wiring + alertas) queda diferida. Reabrir si: (a) llega requerimiento de APM detallado / Live Metrics, (b) los logs de LA no alcanzan para correlación distribuida, (c) se suma OTel y App Insights es el sink natural. |
 
 ---
 
@@ -130,7 +131,7 @@ El MCP corre como Container App `ca-mcp-<env>` con **User-Assigned Identity** de
 | Recurso | Permiso de `uai-mcp-<env>` | Razón |
 |---|---|---|
 | ACR (`<acr>`) | `AcrPull` | Container Apps jala la imagen sin admin user. |
-| Key Vault (`<kv>`) | `Key Vault Secrets User` | Lectura de secrets vía `secretRef` (API keys de PhishTank, GSB, BCE; connection string de App Insights). |
+| Key Vault (`<kv>`) | `Key Vault Secrets User` | Lectura de secrets vía `secretRef` (API keys de PhishTank, GSB, BCE; bearer keys del MCP). |
 | Storage Account (`<storage>`) | `Storage Blob Data Contributor` | Lectura/escritura en `cache-cmf`, `cache-rpsf`, `audit`. |
 
 **Decisiones derivadas:**
@@ -158,7 +159,7 @@ mcp-server/
     ├── server/
     │   └── registry.ts             # registerTool(server, tool) — a crear en Slice 0.7
     ├── lib/
-    │   ├── logging.ts              # hashInput, customEvent emitter
+    │   ├── logging.ts              # hashInput + emitter de logs JSON a stdout (un objeto por línea)
     │   ├── cache.ts                # getOrSet con Storage Blob + fallback in-mem
     │   ├── http.ts                 # undici client con defaults (timeout, retry, UA)
     │   ├── errors.ts               # ToolError + subclases por fuente
@@ -236,9 +237,14 @@ CI ejecuta: `lint`, `typecheck`, `test:coverage`, `build` antes del docker build
 ### 6.4 Logging
 
 - Función `hashInput(s: string): string` retorna `sha256(s).slice(0,8)`. Obligatoria para todo log que toque RUT, URL, dominio, nombre de empresa o cualquier input del usuario.
-- Custom event canónico: `tool.call` con `customDimensions: { toolName, inputHash, durationMs, success, sources, errors? }`.
-- Sin `console.log` en código producción; usar `logger.info|warn|error` que trazea a App Insights.
-- Custom ESLint rule (a definir en Slice 0.3) bloquea logs con argumentos no marcados.
+- **Sink:** stdout en formato JSON Lines (un objeto JSON por línea, sin pretty-print). Container Apps captura stdout y lo enruta a Log Analytics workspace `log-fintech-${env}` (tabla `ContainerAppConsoleLogs_CL`, mensaje en columna `Log_s`). Sin App Insights SDK por ahora (ver § 2 deferred).
+- **Helper:** `logger.event(name, payload)` en `src/lib/logging.ts`. Emite a stdout `{ ts, level, event, ...payload }`. Nunca incluye plaintexts de inputs sensibles ni de bearer tokens.
+- **Eventos canónicos:**
+  - `tool.call` con payload `{ toolName, clientId, inputHash, durationMs, success, sources?, errors? }`.
+  - `auth.failure` con payload `{ reason: "no_header" | "invalid_key" | "revoked", inputHash, ip? }`.
+  - `tool.error` con payload `{ toolName, source, message, retriable }`.
+- **Queries operacionales:** `az monitor log-analytics query --workspace <ws-id> --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.event == 'tool.call' | take 20"`.
+- Sin `console.log` directo en código producción; usar `logger.event` o `logger.info|warn|error` (que internamente hacen `console.log(JSON.stringify(...))`). Custom ESLint rule (Slice 0.3) bloquea `console.*` directo y argumentos no hasheados.
 
 ### 6.5 Determinismo
 
@@ -322,7 +328,7 @@ Cada tool nueva debe incluir:
 - Agregar nueva regla al motor de scoring sin fundamento documentado.
 - Reducir TTL de cache de fuente scrapeada por debajo de 1h (rate limit risk).
 - Cambiar el shape de `BaseToolResponse` (afecta a las 12 tools).
-- Modificar la estructura de `customDimensions` de `tool.call` (rompe queries en App Insights).
+- Modificar el shape del payload de `tool.call` (rompe queries en Log Analytics y dashboards futuros).
 - Reusar API key entre dev y prod.
 
 ### Never do
@@ -365,6 +371,9 @@ Decisiones cerradas con su resolución y razón. Reabrir solo si cambia el conte
 - **Stateless transport → mantener para Slice 0-12.** `sessionIdGenerator: undefined`. Reabrir en Slice 13 si `full_evaluation` necesita streaming progresivo de etapas al cliente.
 - **Discrepancia conteo de tools → fuente de verdad es el README raíz (11 + 1).** Acción: alinear `mcp-server/README.md` (cierre realizado fuera de este SPEC).
 - **`pnpm dev` hot-reload → agregar script `dev:server` con `node --watch`.** Sin nueva dep. Acción: editar `mcp-server/package.json` (cierre realizado fuera de este SPEC).
+- **Auth dev mode → env var `MCP_API_KEYS_LOCAL_JSON`.** El dev arranca el server con un JSON pegado en `.env.local` (ya cubierto por `.gitignore`). Sin dependencia de Azure / `az login`. Divergencia documentada con prod (que sí lee de KV con refresh 60s).
+- **Auth RBAC del web → scope a nivel secret (`<kv-id>/secrets/mcp-api-key-web`).** Reduce blast radius si `uai-web-${env}` se compromete. Fallback a vault completo solo si la suscripción `Pharmkt Sponsorship` no soporta scope-secret (verificación: comando `az role assignment create` retorna error). En ese caso, documentar el downgrade en comentario Bicep.
+- **Telemetría → logs JSON estructurados a stdout** (sink: Container Apps → Log Analytics workspace `log-fintech-${env}`). **App Insights SDK queda diferido.** Reabrir si llega APM detallado / Live Metrics, si LA no alcanza para correlación distribuida, o si se suma OpenTelemetry y AI es el sink natural. Convención: nunca emitir `auth.success` (volumen alto, redundante con `tool.call.clientId`); sí emitir `auth.failure` y `tool.call`.
 
 ## 11. Currently open
 

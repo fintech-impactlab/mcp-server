@@ -24,8 +24,8 @@ Aterrizar el spec de infra Azure (sección [Infra Azure](/Users/afroxstudio/.cla
 [Slice 1: Bootstrap]
     │ providers + quotas + OIDC app registration
     ▼
-[Slice 2: Bicep skeleton + Log Analytics + App Insights]
-    │ workspace existe → backend de telemetría listo
+[Slice 2: Bicep skeleton + Log Analytics] (App Insights diferido)
+    │ workspace existe → sink de logs JSON de Container Apps listo
     ▼
 [Slice 3: ACR + Storage + Key Vault]   ──┐
     │ artifact store + cache + secrets   │ (paralelos entre sí)
@@ -41,9 +41,9 @@ Aterrizar el spec de infra Azure (sección [Infra Azure](/Users/afroxstudio/.cla
     │ build → push ACR → Container App "ca-web" reachable
     │ ca-web llama a ca-mcp por DNS interno del env
     ▼
-[Slice 7: Observabilidad end-to-end]
-    │ App Insights recibe traces de ambos containers
-    │ alertas básicas configuradas
+[Slice 7: Observabilidad end-to-end] (App Insights diferido)
+    │ logs JSON de ambos containers visibles en Log Analytics
+    │ hashing de inputs en logs aplicado (7.3); alertas diferidas
     ▼
 [Slice 8: GitHub Actions CI/CD con OIDC]
     │ workflow build-and-deploy.yml verde en main
@@ -65,7 +65,7 @@ Excepción: Slice 1 (bootstrap) y Slice 2 (foundation telemetry) son prerequisit
 |---|---|---|
 | **CP-1** | Después de Slice 1 | Quotas OK, providers registrados, OIDC funciona contra suscripción. Sin estos, todo lo demás falla en silencio o tarde. |
 | **CP-2** | Después de Slice 4 | Env desplegado y los recursos auxiliares (ACR/Storage/KV) responden. Punto natural para revisar costos en Azure Cost Mgmt. |
-| **CP-3** | Después de Slice 6 | Stack completo reachable manualmente: `ca-web` público responde y renderiza el resultado del health interno de `ca-mcp`. La validación de latencia interna (<50 ms) se mide en CP-4 (requiere App Insights de Slice 7). |
+| **CP-3** | Después de Slice 6 | Stack completo reachable manualmente: `ca-web` público responde y renderiza el resultado del health interno de `ca-mcp`. La validación de latencia interna (<50 ms) se mide en CP-4, ahora vía Kusto sobre `ContainerAppConsoleLogs_CL` (App Insights diferido). |
 | **CP-4** | Después de Slice 8 | CI/CD verde + telemetría llegando + latencia interna validada. Handover formal al equipo de app. |
 
 ---
@@ -107,10 +107,9 @@ curl -fsSL "https://ca-web-<env>.<env>.azurecontainerapps.io/"
 # CI/CD verde (repo asumido <org>/<repo>; confirmar antes de Slice 1.4)
 gh run list --repo <org>/<repo> --workflow build-and-deploy.yml --limit 1
 
-# Telemetría llegando
-az monitor app-insights query \
-  --app appi-fintech-dev \
-  --analytics-query "requests | take 5"
+# Telemetría llegando (logs JSON de Container Apps)
+az monitor log-analytics query --workspace <log-fintech-<env>-id> \
+  --analytics-query "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(15m) and ContainerAppName_s in ('ca-mcp-<env>', 'ca-web-<env>') | take 5"
 ```
 
 ## Próximo paso

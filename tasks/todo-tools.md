@@ -89,9 +89,9 @@ API REST oficial del Banco Central. Sin scraping, registro gratuito. Valida el p
   - **AC:** test E2E del handler con cliente mockeado retorna shape esperado. Test de fallo: cliente lanza `BCEError`, handler retorna response con `dataAvailable: false` y `disclaimer` apropiado.
   - **Verify:** `npm test -- get_market_reference_rates` verde.
 
-- [ ] **2.6** Trazas en App Insights.
-  - **AC:** handler emite custom event `tool.call` con `customDimensions: { toolName, inputHash, durationMs, success, source: "bce" }`. `inputHash` para esta tool es `hashInput("")` constante (input vacío).
-  - **Verify:** local con dummy AI sink: el evento se emite con shape correcto. Post-deploy (depende de infra Slice 7): `customEvents | where name == "tool.call" | where customDimensions.toolName == "get_market_reference_rates"` retorna filas.
+- [ ] **2.6** Logs JSON estructurados a stdout.
+  - **AC:** handler emite log `{ event: "tool.call", toolName, clientId, inputHash, durationMs, success, source: "bce" }` vía `logger.event` (helper de Slice 0.3). `inputHash` para esta tool es `hashInput("")` constante (input vacío).
+  - **Verify:** local: `pnpm dev:server` y un `tools/call` produce una línea JSON en stdout con shape esperado. Post-deploy: `az monitor log-analytics query --workspace <log-fintech-${env}-id> --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.event == 'tool.call' and log.toolName == 'get_market_reference_rates' | take 5"` retorna filas.
 
 > ⛳ **Checkpoint CP-B** — primera tool end-to-end. Confirmar patrón antes de paralelizar Slices 3 y 4.
 
@@ -167,9 +167,9 @@ XLSX parser + multi-fuente + cache agresivo. Tool con mayor demo value (caso de 
   - **AC:** ≥6 tests (uno por fuente positivo + uno por fuente caída). Test de orquestación: 3 fuentes prenden, 1 caída → verdict consolidado correcto.
   - **Verify:** `npm test -- check_blacklist` verde.
 
-- [ ] **4.11** Trazas en App Insights.
-  - **AC:** custom event `tool.call` con `customDimensions: { toolName, inputHash, sourcesQueried, sourcesFailed, hitCount }`.
-  - **Verify:** evento emitido con shape correcto.
+- [ ] **4.11** Logs JSON estructurados a stdout.
+  - **AC:** log `{ event: "tool.call", toolName, clientId, inputHash, durationMs, success, sourcesQueried, sourcesFailed, hitCount }` vía `logger.event`.
+  - **Verify:** stdout local muestra el JSON con shape correcto; post-deploy queryable en Log Analytics.
 
 > ⛳ **Checkpoint CP-C** — Etapa 1 parcial completa (blacklist). Caso de uso 2 del README (extensión de navegador, una sola consulta) ya viable. Avanzar a Slice 5 cierra Etapa 1 entera.
 
@@ -392,9 +392,9 @@ curl -fsSL -X POST https://<ca-mcp-internal>/mcp/tools/call \
 # Esperado: stoppedAt: "etapa_1", verdict: "alto_riesgo"
 
 # 4. Trazas con input hasheado
-az monitor app-insights query --app appi-fintech-dev \
-  --analytics-query "customEvents | where name == 'tool.call' | take 20"
-# Esperado: ningún customDimensions contiene RUT/URL crudos; solo inputHash
+az monitor log-analytics query --workspace <log-fintech-${env}-id> \
+  --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.event == 'tool.call' | take 20"
+# Esperado: ningún campo del JSON contiene RUT/URL crudos; solo log.inputHash (8 hex)
 
 # 5. SCORING.md cubre todas las reglas
 diff <(grep "^| " SCORING.md | tail -n +2 | wc -l) <(node -e "console.log(require('./mcp-server/src/scoring/rules').rules.length)")
