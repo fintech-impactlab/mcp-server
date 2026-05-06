@@ -10,6 +10,7 @@ import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
 import { registerTool } from "./server/registry.js";
 import { createCheckBlacklistTool } from "./tools/check_blacklist/index.js";
+import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 
@@ -76,6 +77,16 @@ async function main(): Promise<void> {
     }),
   );
   logger.event("server.tool_registered", { toolName: "check_blacklist" });
+
+  registerTool(
+    mcp,
+    createCheckWhitelistTool({
+      cache,
+      storage,
+      fintechileConfig: {},
+    }),
+  );
+  logger.event("server.tool_registered", { toolName: "check_whitelist" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

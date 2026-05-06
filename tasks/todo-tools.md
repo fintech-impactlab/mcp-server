@@ -179,19 +179,19 @@ XLSX parser + multi-fuente + cache agresivo. Tool con mayor demo value (caso de 
 
 Scraping respetuoso de CMF RPSF + FinteChile. Habilita Slice 9 (parsers reutilizados).
 
-- [ ] **5.1** Parser scraping de CMF RPSF.
+- [x] **5.1** Parser scraping de CMF RPSF.
   - **AC:** `src/tools/check_whitelist/parsers/cmf-rpsf.ts`. Descarga listado público de entidades autorizadas + en revisión bajo Ley 21.521 (179 + 300 a feb 2025 según README). 1 req/s. Normaliza a `RegistryEntry { source, rut, nombre, estado: "autorizada"|"en_revision"|"no_registrada", tipoEntidad, fechaAutorizacion, numeroRegistro }`.
   - **Verify:** fixture HTML parsea con conteo esperado.
 
-- [ ] **5.2** Cliente FinteChile.
+- [x] **5.2** Cliente FinteChile.
   - **AC:** scraping listado público de miembros de gremio. `FinteChileError` en fallos. Normaliza a `MembershipEntry { source: "fintechile", nombre, rut?, fechaIngreso? }`.
   - **Verify:** fixture parsea.
 
-- [ ] **5.3** Cache `cache-rpsf` con refresh semanal.
+- [x] **5.3** Cache `cache-rpsf` con refresh semanal.
   - **AC:** script `npm run refresh:rpsf`. Blob por listado.
   - **Verify:** `npm run refresh:rpsf` puebla cache.
 
-- [ ] **5.4** Schemas, reglas, handler, tests, trazas.
+- [x] **5.4** Schemas, reglas, handler, tests, trazas.
   - **AC:** reglas `whitelist.rpsf_autorizada` (+30), `whitelist.rpsf_en_revision` (+10), `whitelist.fintechile_miembro` (+15). Output con `inWhitelist: boolean`, `entries: RegistryEntry[]`.
   - **Verify:** `npm test -- check_whitelist` verde. Tool aparece en `tools/list`.
 
