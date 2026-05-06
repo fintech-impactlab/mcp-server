@@ -50,6 +50,7 @@ describe("score — basic behavior", () => {
         weight: 7,
         reason: "custom rule for tests",
         fundamento: "test-only",
+        appliesToNonCmf: true,
         predicate: () => true,
       },
     ];
@@ -107,6 +108,7 @@ describe("score — propagación de legalRefs", () => {
         weight: 1,
         reason: "test",
         fundamento: "test",
+        appliesToNonCmf: true,
         predicate: () => true,
       },
     ];
