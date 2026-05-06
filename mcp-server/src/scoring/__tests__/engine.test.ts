@@ -54,7 +54,7 @@ describe("score — basic behavior", () => {
         predicate: () => true,
       },
     ];
-    const result = score({}, customRules);
+    const result = score({}, { rules: customRules });
     assert.equal(result.score, 7);
     assert.equal(result.reasons[0]?.ruleId, "custom.always");
   });
@@ -112,7 +112,7 @@ describe("score — propagación de legalRefs", () => {
         predicate: () => true,
       },
     ];
-    const result = score({}, customRules);
+    const result = score({}, { rules: customRules });
     assert.equal("legalRefs" in (result.reasons[0] ?? {}), false);
   });
 
@@ -122,6 +122,65 @@ describe("score — propagación de legalRefs", () => {
     const r = result.reasons.find((x) => x.ruleId === "domain.young_lt7d");
     assert.ok(r);
     assert.deepEqual(r.legalRefs, []);
+  });
+});
+
+describe("score — perfil no_cmf", () => {
+  it("ignora reglas con appliesToNonCmf=false bajo profile no_cmf", () => {
+    const facts: Facts = {
+      whitelist: { rpsfStatus: "autorizada", fintechileMembership: true },
+      blacklist: { sources: ["cmf-plataformas-no-reguladas", "phishtank"] },
+      regulator: { tipoEntidad: "fintech", estadoRPSF: "no_registrada" },
+      entity: { siiStatus: "activo" },
+      businessModel: { promesaRentabilidadIrreal: true, lenguajeVago: true },
+    };
+    const cmf = score(facts, { profile: "cmf" });
+    const noCmf = score(facts, { profile: "no_cmf" });
+
+    const noCmfIds = new Set(noCmf.reasons.map((r) => r.ruleId));
+    // 11 reglas CMF-only no aparecen en no_cmf, aunque sus facts gatillen.
+    for (const id of [
+      "whitelist.rpsf_autorizada",
+      "whitelist.fintechile_miembro",
+      "blacklist.cmf_plataformas_no_reguladas",
+      "regulator.fintech_no_registrada",
+      "bm.promesa_rentabilidad_irreal",
+    ]) {
+      assert.equal(noCmfIds.has(id), false, `${id} no debería estar en perfil no_cmf`);
+    }
+    // Las reglas generales sí aplican.
+    for (const id of ["blacklist.phishtank", "entity.sii_activo", "bm.lenguaje_vago"]) {
+      assert.equal(noCmfIds.has(id), true, `${id} debería estar en perfil no_cmf`);
+    }
+    // Las reasons de no_cmf son subset estricto de las de cmf.
+    const cmfIds = new Set(cmf.reasons.map((r) => r.ruleId));
+    for (const id of noCmfIds) {
+      assert.equal(cmfIds.has(id), true, `regla ${id} aparece en no_cmf pero no en cmf`);
+    }
+  });
+
+  it("totalScore en no_cmf es distinto al de cmf cuando hay reglas filtradas", () => {
+    const facts: Facts = {
+      whitelist: { rpsfStatus: "autorizada" },
+      entity: { siiStatus: "activo" },
+    };
+    const cmf = score(facts, { profile: "cmf" });
+    const noCmf = score(facts, { profile: "no_cmf" });
+    assert.equal(cmf.score, 60); // +50 + +10
+    assert.equal(noCmf.score, 10); // solo +10 (entity.sii_activo)
+  });
+
+  it("determinismo: 1000 invocaciones perfil no_cmf con mismos facts → output exacto", () => {
+    const facts: Facts = {
+      domain: { ageDays: 5, sslStatus: "missing" },
+      blacklist: { sources: ["phishtank"] },
+      entity: { siiStatus: "suspendido" },
+    };
+    const reference = score(facts, { profile: "no_cmf" });
+    for (let i = 0; i < 1000; i += 1) {
+      const result = score(facts, { profile: "no_cmf" });
+      assert.deepEqual(result, reference, `non-deterministic at i=${i}`);
+    }
   });
 });
 

@@ -4,6 +4,8 @@
 
 import { rules as defaultRules, type Facts, type Rule } from "./rules.js";
 
+export type ScoreProfile = "cmf" | "no_cmf";
+
 export interface ScoreReason {
   ruleId: string;
   weight: number;
@@ -17,13 +19,28 @@ export interface ScoreResult {
   reasons: ReadonlyArray<ScoreReason>;
 }
 
-export function score(
-  facts: Facts,
-  rules: ReadonlyArray<Rule> = defaultRules,
-): ScoreResult {
+export interface ScoreOptions {
+  /**
+   * Perfil de scoring. `"cmf"` aplica las 28 reglas; `"no_cmf"` ignora las
+   * 11 reglas marcadas con `appliesToNonCmf=false` (listados CMF, RPSF,
+   * promesas de rentabilidad — no aplican a sitios fuera del perímetro
+   * regulatorio CMF). Default: `"cmf"`.
+   */
+  profile?: ScoreProfile;
+  /**
+   * Conjunto de reglas a evaluar. Default: catálogo completo de `rules.ts`.
+   * Útil para tests con reglas inyectadas.
+   */
+  rules?: ReadonlyArray<Rule>;
+}
+
+export function score(facts: Facts, options: ScoreOptions = {}): ScoreResult {
+  const profile: ScoreProfile = options.profile ?? "cmf";
+  const ruleSet = options.rules ?? defaultRules;
   const reasons: ScoreReason[] = [];
   let total = 0;
-  for (const rule of rules) {
+  for (const rule of ruleSet) {
+    if (profile === "no_cmf" && rule.appliesToNonCmf === false) continue;
     if (rule.predicate(facts)) {
       total += rule.weight;
       const reason: ScoreReason = {
