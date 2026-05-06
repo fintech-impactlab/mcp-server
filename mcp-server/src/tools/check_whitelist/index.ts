@@ -1,6 +1,7 @@
 import type { Cache } from "../../lib/cache.js";
 import { CMFFetchError, FinteChileError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
+import { MIN_NORMALIZED_LENGTH, normalizeForMatch } from "../../lib/normalize.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
 import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
@@ -246,8 +247,9 @@ function matchRpsf(
     const target = normalizeRut(input);
     return entries.filter((e) => e.rut === target);
   }
-  const lower = input.toLowerCase();
-  return entries.filter((e) => e.razonSocial.toLowerCase().includes(lower));
+  const queryNorm = normalizeForMatch(input);
+  if (queryNorm.length < MIN_NORMALIZED_LENGTH) return [];
+  return entries.filter((e) => normalizeForMatch(e.razonSocial).includes(queryNorm));
 }
 
 interface FinteChileCheckResult {
@@ -267,8 +269,13 @@ async function checkFinteChile(
       loadFinteChileMembers,
       { staleOnError: true },
     );
-    const lower = input.toLowerCase();
-    const matches = members.filter((m) => m.nombre.toLowerCase().includes(lower));
+    const queryNorm = normalizeForMatch(input);
+    if (queryNorm.length < MIN_NORMALIZED_LENGTH) {
+      return { dataAvailable: true, matches: [] };
+    }
+    const matches = members.filter((m) =>
+      normalizeForMatch(m.nombre).includes(queryNorm),
+    );
     return { dataAvailable: true, matches };
   } catch (err) {
     logger.event(

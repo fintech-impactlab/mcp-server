@@ -136,6 +136,44 @@ describe("check_regulator_status — banco vía lista oficial", () => {
     assert.ok(ids.includes("ley-general-bancos"));
     assert.ok(ids.includes("manual-sif"));
   });
+
+  it("dominio 'bancofalabella.cl' → banco (sin espacio en SLD)", async () => {
+    const tool = createCheckRegulatorStatusTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [],
+      loadSiiGiros: async () => [],
+    });
+    const response = await tool.handler({ rutOrName: "bancofalabella.cl" });
+    assert.equal(response.tipoEntidad, "banco");
+  });
+
+  it("URL completa 'https://www.bancofalabella.cl/' → banco", async () => {
+    const tool = createCheckRegulatorStatusTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [],
+      loadSiiGiros: async () => [],
+    });
+    const response = await tool.handler({
+      rutOrName: "https://www.bancofalabella.cl/",
+    });
+    assert.equal(response.tipoEntidad, "banco");
+  });
+
+  it("dominio random sin tokens de banco → no_fiscalizada", async () => {
+    const tool = createCheckRegulatorStatusTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [],
+      loadSiiGiros: async () => [],
+    });
+    const response = await tool.handler({ rutOrName: "mercadolibre.cl" });
+    assert.equal(response.tipoEntidad, "no_fiscalizada");
+  });
 });
 
 describe("check_regulator_status — degraded", () => {

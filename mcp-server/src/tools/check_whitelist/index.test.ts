@@ -97,6 +97,45 @@ describe("check_whitelist handler — happy path", () => {
     assert.equal(response.entries[0]?.estado, "autorizada");
   });
 
+  it("matchea cuando el input es un dominio (sin espacios ni TLD)", async () => {
+    const tool = createCheckWhitelistTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [
+        rpsfEntry({ razonSocial: "FINTECHPAGOS SPA" }),
+      ],
+      loadFinteChileMembers: async () => [],
+    });
+    const response = await tool.handler({ input: "fintechpagos.cl" });
+    assert.equal(response.inWhitelist, true);
+  });
+
+  it("matchea cuando el input es una URL completa", async () => {
+    const tool = createCheckWhitelistTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [
+        rpsfEntry({ razonSocial: "FINTECHPAGOS SPA" }),
+      ],
+      loadFinteChileMembers: async () => [],
+    });
+    const response = await tool.handler({
+      input: "https://www.fintechpagos.cl/",
+    });
+    assert.equal(response.inWhitelist, true);
+  });
+
+  it("no matchea queries demasiado cortas tras normalización", async () => {
+    const tool = createCheckWhitelistTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [rpsfEntry()],
+      loadFinteChileMembers: async () => [],
+    });
+    const response = await tool.handler({ input: "https://www.cl/" });
+    assert.equal(response.inWhitelist, false);
+  });
+
   it("estado 'en_revision' suma +10", async () => {
     const tool = createCheckWhitelistTool({
       cache: createCache({ store: createInMemoryStore() }),

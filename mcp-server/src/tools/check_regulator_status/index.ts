@@ -8,6 +8,7 @@ import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { Storage } from "../../lib/storage.js";
 
+import { MIN_NORMALIZED_LENGTH, normalizeForMatch } from "../../lib/normalize.js";
 import * as fintechile from "../check_whitelist/clients/fintechile.js";
 import {
   parseRpsfCsv,
@@ -55,7 +56,9 @@ export function createCheckRegulatorStatusTool(
   const loadFinteChileMembers =
     deps.loadFinteChileMembers ?? (() => fintechile.fetchFinteChileMembers(deps.fintechileConfig));
   const loadSiiGiros = deps.loadSiiGiros ?? (async () => []);
-  const bancosList = (deps.bancosList ?? DEFAULT_BANCOS).map((s) => s.toLowerCase());
+  const bancosListNorm = (deps.bancosList ?? DEFAULT_BANCOS)
+    .map((s) => normalizeForMatch(s))
+    .filter((s) => s.length >= MIN_NORMALIZED_LENGTH);
 
   return {
     name: TOOL_NAME,
@@ -78,7 +81,10 @@ export function createCheckRegulatorStatusTool(
       const estadoRPSF: "autorizada" | "en_revision" | "no_registrada" =
         rpsfMatch?.estado ?? "no_registrada";
       const numeroRegistro = rpsfMatch?.numeroRegistro ?? null;
-      const enListaBancos = bancosList.some((b) => query.toLowerCase().includes(b));
+      const queryNorm = normalizeForMatch(query);
+      const enListaBancos =
+        queryNorm.length >= MIN_NORMALIZED_LENGTH &&
+        bancosListNorm.some((b) => queryNorm.includes(b));
 
       const tipoEntidad: EntityType = classifyEntity({
         nombre: query,
@@ -89,9 +95,12 @@ export function createCheckRegulatorStatusTool(
         enListaBancos,
       });
 
-      const membresiaFinteChile = fintechile.dataAvailable
-        ? fintechile.members.some((m) => m.nombre.toLowerCase().includes(query.toLowerCase()))
-        : false;
+      const membresiaFinteChile =
+        fintechile.dataAvailable && queryNorm.length >= MIN_NORMALIZED_LENGTH
+          ? fintechile.members.some((m) =>
+              normalizeForMatch(m.nombre).includes(queryNorm),
+            )
+          : false;
 
       const giroConsistente = checkConsistency(tipoEntidad, giros);
 
@@ -303,8 +312,9 @@ function matchRpsf(
     const target = query.replace(/\./g, "").toUpperCase();
     return entries.filter((e) => e.rut === target);
   }
-  const lower = query.toLowerCase();
-  return entries.filter((e) => e.razonSocial.toLowerCase().includes(lower));
+  const queryNorm = normalizeForMatch(query);
+  if (queryNorm.length < MIN_NORMALIZED_LENGTH) return [];
+  return entries.filter((e) => normalizeForMatch(e.razonSocial).includes(queryNorm));
 }
 
 async function loadAllRpsfFromStorage(
