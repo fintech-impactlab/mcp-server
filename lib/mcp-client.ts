@@ -159,9 +159,15 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
   });
   const client = new Client({ name: "fintech-web", version: "0.1.0" });
 
+  const closeQuietly = async (): Promise<void> => {
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+  };
+
   try {
     await client.connect(transport);
   } catch (err) {
+    await closeQuietly();
     logger.error("web.mcp.connect_failed", {
       inputHash,
       message: err instanceof Error ? err.message : String(err),
@@ -179,39 +185,41 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   const outcomes: ToolOutcome[] = [];
 
-  for (const { tool, arguments: args } of calls) {
-    const stage = TOOL_STAGES[tool] ?? "otro";
-    try {
-      const result = await client.callTool(
-        { name: tool, arguments: args },
-        undefined,
-        { signal },
-      );
-      const payload = extractToolPayload(
-        result as {
-          content?: Array<{ type: string; text?: string }>;
-          structuredContent?: unknown;
-          isError?: boolean;
-        },
-      );
-      if (!payload.ok) {
-        outcomes.push({ tool, stage, ok: false, error: payload.error });
-        continue;
+  try {
+    for (const { tool, arguments: args } of calls) {
+      const stage = TOOL_STAGES[tool] ?? "otro";
+      try {
+        const result = await client.callTool(
+          { name: tool, arguments: args },
+          undefined,
+          { signal },
+        );
+        const payload = extractToolPayload(
+          result as {
+            content?: Array<{ type: string; text?: string }>;
+            structuredContent?: unknown;
+            isError?: boolean;
+          },
+        );
+        if (!payload.ok) {
+          outcomes.push({ tool, stage, ok: false, error: payload.error });
+          continue;
+        }
+        outcomes.push({ tool, stage, ok: true, data: payload.data });
+      } catch (err) {
+        const isTimeout =
+          err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError";
+        outcomes.push({
+          tool,
+          stage,
+          ok: false,
+          error: isTimeout ? "timeout" : err instanceof Error ? err.message : String(err),
+        });
       }
-      outcomes.push({ tool, stage, ok: true, data: payload.data });
-    } catch (err) {
-      const isTimeout =
-        err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError";
-      outcomes.push({
-        tool,
-        stage,
-        ok: false,
-        error: isTimeout ? "timeout" : err instanceof Error ? err.message : String(err),
-      });
     }
+  } finally {
+    await closeQuietly();
   }
-
-  await client.close().catch(() => {});
 
   const okCount = outcomes.filter((o) => o.ok).length;
   if (okCount === 0) {

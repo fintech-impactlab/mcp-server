@@ -1,15 +1,33 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import Script from "next/script";
 import { evaluateAction, type EvaluateState } from "../actions/evaluate";
 import { ResultView } from "./ResultView";
 
 const initial: EvaluateState = { status: "idle" };
 
+declare global {
+  interface Window {
+    grecaptcha?: { reset: (widgetId?: number) => void };
+  }
+}
+
 export function EvaluateForm() {
   const [state, action, pending] = useActionState(evaluateAction, initial);
   const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+  const wasPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (wasPendingRef.current && !pending) {
+      try {
+        window.grecaptcha?.reset();
+      } catch {
+        // widget no montado todavía, ignorar
+      }
+    }
+    wasPendingRef.current = pending;
+  }, [pending]);
 
   return (
     <div className="flex flex-col gap-8">
