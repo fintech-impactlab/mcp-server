@@ -105,9 +105,9 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
   - **AC:** [SPEC.md](../SPEC.md): tabla de "Cache externo" reemplazada por dos filas — "Persistencia activa" (File Share + `DATA_DIR`) y "Cache opcional (dormant)" (blob containers aprovisionados pero sin role). Tabla de RBAC §3.6 marca "_(sin role asignado)_" en la fila Storage Account. §3.7 sobre `data/` explica que el contenido se sincroniza al File Share `mcp-data` con `upload-data-to-share.mjs` y se lee en runtime desde `/app/data`. Refresh operacional ya no menciona blob `cache-cmf` como destino. Docs de `cache.ts` y `refresh-cmf.ts` apuntan al File Share. Tests con Azurite quedan registrados como "reabrir si se reactiva blob backend".
   - **Verify:** `grep -n "Storage Blob Data Contributor\|persiste a Storage Blob\|cache-cmf\|cache-rpsf" SPEC.md` solo retorna las referencias contextuales (Cache opcional dormant, ADR-001, alternativas históricas), no como mecanismo activo.
 
-- [ ] **S4.4** App verde end-to-end (post-deploy).
+- [x] **S4.4** App verde end-to-end (post-deploy).
   - **AC:** flujo completo (deploy → seed key → upload data → request a `/mcp`) pasa con el role assignment removido.
-  - **Verify:** redeployar `storage-volume-s1` y repetir Verify de S1.6 + S2.3. La revision nueva no debería ver el role; el File Share sigue funcionando porque el mount usa account key (no MI).
+  - **Verify (2026-05-06, revision `ca-mcp-fintech-dev--0000016`):** redeploy `storage-volume-s1` aplicado. El role `Storage Blob Data Contributor` quedó huérfano (Bicep ARM no borra role assignments al sacarlos del template); se eliminó manualmente con `az role assignment delete --ids`. UAI `uai-mcp-dev` ahora lista solo `Key Vault Secrets User` + `AcrPull`. File Share sigue montando porque el mount usa account key vía CAE storage definition. Reads en `/app/data/normativas/sii` y `time cat` de Checkpoint A confirman que no hubo regresión.
 
 ---
 
