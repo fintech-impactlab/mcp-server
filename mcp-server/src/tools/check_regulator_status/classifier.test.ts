@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyEntity, type ClassifierInput } from "./classifier.js";
+import {
+  classifyEntity,
+  requiereCMF,
+  type ClassifierInput,
+  type EntityType,
+} from "./classifier.js";
 
 const giro = (codigo: string, descripcion: string) => ({ codigo, descripcion });
 
@@ -167,4 +172,25 @@ describe("classifyEntity — no_fiscalizada vs desconocido", () => {
     };
     assert.equal(classifyEntity(input), "fintech");
   });
+});
+
+describe("requiereCMF — mapping tipoEntidad → perfil", () => {
+  const expected: Readonly<Record<EntityType, boolean>> = {
+    banco: true,
+    caja_compensacion: true,
+    cooperativa: true,
+    fintech: true,
+    casa_cambio: true,
+    emisor_tarjetas: true,
+    ecommerce_credito: true,
+    prestamista_no_regulado: true,
+    no_fiscalizada: false,
+    desconocido: true,
+  };
+
+  for (const [tipo, esperado] of Object.entries(expected) as [EntityType, boolean][]) {
+    it(`${tipo} → ${esperado}`, () => {
+      assert.equal(requiereCMF(tipo), esperado);
+    });
+  }
 });

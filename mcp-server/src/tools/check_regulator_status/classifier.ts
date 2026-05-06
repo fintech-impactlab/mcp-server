@@ -127,3 +127,30 @@ export function classifyEntity(input: ClassifierInput): EntityType {
   }
   return "desconocido";
 }
+
+/**
+ * Decide si la entidad debería estar regulada por la CMF y, por lo tanto,
+ * a qué escala de niveles aplica el scoring (perfil "cmf" vs "no_cmf").
+ *
+ * `desconocido` ⇒ `true` (default conservador): cuando no se puede clasificar
+ * la entidad — típicamente por caída de RPSF + SII —, asumimos que sí
+ * requiere regulación. Falsos positivos en e-commerce con fuentes caídas son
+ * preferibles a falsos negativos en fintechs sin clasificar.
+ */
+export function requiereCMF(tipoEntidad: EntityType): boolean {
+  switch (tipoEntidad) {
+    case "banco":
+    case "caja_compensacion":
+    case "cooperativa":
+    case "fintech":
+    case "casa_cambio":
+    case "emisor_tarjetas":
+    case "ecommerce_credito":
+    case "prestamista_no_regulado":
+      return true;
+    case "no_fiscalizada":
+      return false;
+    case "desconocido":
+      return true;
+  }
+}
