@@ -45,3 +45,28 @@ export function validateKey(
   }
   return { valid: false };
 }
+
+export function wasRevoked(
+  plain: string,
+  entries: ReadonlyArray<KeyEntry>,
+  comparator: Comparator = defaultComparator,
+): boolean {
+  if (typeof plain !== "string" || plain.length === 0) {
+    return false;
+  }
+  const candidateBuf = Buffer.from(hashKey(plain), "base64url");
+  for (const entry of entries) {
+    if (entry.revokedAt === null) continue;
+    let entryBuf: Buffer;
+    try {
+      entryBuf = Buffer.from(entry.keyHash, "base64url");
+    } catch {
+      continue;
+    }
+    if (entryBuf.length === 0) continue;
+    if (comparator(candidateBuf, entryBuf)) {
+      return true;
+    }
+  }
+  return false;
+}

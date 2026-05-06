@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { hashKey, validateKey, type KeyEntry, type Comparator } from "./keys.js";
+import {
+  hashKey,
+  validateKey,
+  wasRevoked,
+  type Comparator,
+  type KeyEntry,
+} from "./keys.js";
 
 const PLAIN_A = "demo-plaintext-A-not-real";
 const PLAIN_B = "demo-plaintext-B-not-real";
@@ -107,5 +113,33 @@ describe("validateKey", () => {
     ];
     const result = validateKey(PLAIN_A, entries);
     assert.deepEqual(result, { valid: true, clientId: "good", keyId: "k-good" });
+  });
+});
+
+describe("wasRevoked", () => {
+  it("returns true when the plaintext matches a revoked entry's hash", () => {
+    const entry = buildEntry({ revokedAt: "2026-05-02T00:00:00.000Z" });
+    assert.equal(wasRevoked(PLAIN_A, [entry]), true);
+  });
+
+  it("returns false when the matching entry is active (not revoked)", () => {
+    assert.equal(wasRevoked(PLAIN_A, [buildEntry()]), false);
+  });
+
+  it("returns false when no entry matches the plaintext", () => {
+    const entry = buildEntry({
+      revokedAt: "2026-05-02T00:00:00.000Z",
+      keyHash: HASH_B,
+    });
+    assert.equal(wasRevoked(PLAIN_A, [entry]), false);
+  });
+
+  it("returns false for an empty plaintext", () => {
+    const entry = buildEntry({ revokedAt: "2026-05-02T00:00:00.000Z" });
+    assert.equal(wasRevoked("", [entry]), false);
+  });
+
+  it("returns false for an empty entries list", () => {
+    assert.equal(wasRevoked(PLAIN_A, []), false);
   });
 });
