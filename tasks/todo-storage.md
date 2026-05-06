@@ -53,14 +53,14 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 ## Checkpoint A — Validación humana antes de eliminar blobs
 
-- [ ] **CA.1** Mount estable a través de restarts.
-  - **Verify:** `az containerapp revision restart -n ca-mcp-fintech-dev -g <rg>`; tras restart `ls /app/data/normativas` sigue mostrando los archivos.
+- [x] **CA.1** Mount estable a través de restarts.
+  - **Verify (2026-05-06, revision `ca-mcp-fintech-dev--0000016`):** post `az containerapp revision restart`, `ls /app/data/normativas/sii` lista los 8 archivos esperados (4 .md + 4 .pdf SII). Mount sobrevive al restart.
 
-- [ ] **CA.2** Performance de lectura aceptable.
-  - **Verify:** `az containerapp exec … --command "sh -c 'time cat /app/data/snapshots/cmf/creditos_fraudulentos.csv > /dev/null'"` reporta < 500ms.
+- [x] **CA.2** Performance de lectura aceptable.
+  - **Verify (2026-05-06):** `time cat /app/data/snapshots/cmf/creditos_fraudulentos.csv > /dev/null` → `real 0m0.02s` (20ms, 25× bajo el SLA de 500ms).
 
 - [ ] **CA.3** Costo del File Share revisado en portal.
-  - **Verify:** capture de cost analysis confirmando que TransactionOptimized + 100 GiB queda dentro del budget esperado.
+  - **Verify:** capture de cost analysis confirmando que TransactionOptimized + 100 GiB queda dentro del budget esperado. Pendiente manual.
 
 ---
 
