@@ -18,6 +18,8 @@
     "test": "node --test --test-reporter=spec \"dist/**/*.test.js\""
   },
   "dependencies": {
+    "@azure/identity": "^4.13.1",
+    "@azure/keyvault-secrets": "^4.11.2",
     "@modelcontextprotocol/sdk": "1.29.0",
     "express": "4.21.2"
   },
