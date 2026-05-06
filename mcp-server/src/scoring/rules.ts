@@ -43,12 +43,28 @@ export interface DnsFacts {
   registrantAnonymized?: boolean;
 }
 
+export interface RegulatorFacts {
+  tipoEntidad?:
+    | "banco"
+    | "caja_compensacion"
+    | "cooperativa"
+    | "fintech"
+    | "casa_cambio"
+    | "emisor_tarjetas"
+    | "ecommerce_credito"
+    | "prestamista_no_regulado"
+    | "desconocido";
+  estadoRPSF?: "autorizada" | "en_revision" | "no_registrada";
+  giroConsistente?: boolean;
+}
+
 export interface Facts {
   domain?: DomainFacts;
   blacklist?: BlacklistFacts;
   whitelist?: WhitelistFacts;
   entity?: EntityFacts;
   dns?: DnsFacts;
+  regulator?: RegulatorFacts;
 }
 
 export interface Rule {
@@ -280,6 +296,27 @@ export const rules: ReadonlyArray<Rule> = [
     fundamento:
       "Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente.",
     predicate: (f) => f.entity?.siiStatus === "sin_inicio",
+  },
+  // ── Regulator ──────────────────────────────────────────────────────────
+  {
+    id: "regulator.rpsf_autorizada_y_giro_consistente",
+    category: "regulator",
+    weight: 25,
+    reason: "Autorizada en RPSF con giro tributario consistente con la categoría",
+    fundamento:
+      "RPSF autorizada + giro SII coherente con la actividad declarada (ej. fintech con código 6491/6492 o asesor con 6499) descarta el patrón típico de empresas autorizadas pero operando fuera de su giro.",
+    predicate: (f) =>
+      f.regulator?.estadoRPSF === "autorizada" && f.regulator?.giroConsistente === true,
+  },
+  {
+    id: "regulator.fintech_no_registrada",
+    category: "regulator",
+    weight: -30,
+    reason: "Operación que se presenta como fintech sin estar inscrita en RPSF",
+    fundamento:
+      "Bajo Ley 21.521 todo prestador de servicios fintech debe registrarse en RPSF (Plataformas, Custodios, Asesores, Iniciadores, Enrutadores). Operar como fintech sin registro es directamente irregular.",
+    predicate: (f) =>
+      f.regulator?.tipoEntidad === "fintech" && f.regulator?.estadoRPSF === "no_registrada",
   },
   {
     id: "entity.antiguedad_lt6m",

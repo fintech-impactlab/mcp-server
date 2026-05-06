@@ -261,19 +261,19 @@ Scraping SII + dequienes.cl. La pieza más frágil: SII no tiene API.
 
 Reusa parsers de Slice 5 + clasificador de tipo.
 
-- [ ] **9.1** Clasificador de tipo de entidad.
+- [x] **9.1** Clasificador de tipo de entidad.
   - **AC:** `src/tools/check_regulator_status/classifier.ts`. Reglas determinísticas: si está en lista de bancos → `banco`; si está en RPSF tipo `pago` → `fintech_pagos`; etc. Cubre 8 tipos del README (banco, caja, cooperativa, fintech, casa de cambio, emisor de tarjetas, e-commerce con crédito, prestamista no regulado).
   - **Verify:** test con fixtures de los 8 tipos.
 
-- [ ] **9.2** Mapping tipo → normativas CMF aplicables.
+- [x] **9.2** Mapping tipo → normativas CMF aplicables.
   - **AC:** tabla `src/constants/cmf-norms-mapping.ts`. Banco → Ley General Bancos + Manual SIF; Fintech → Ley 21.521 + NCG 502/503/504/514 + Manual SIF; etc.
   - **Verify:** test cubre las 8 combinaciones.
 
-- [ ] **9.3** Handler reusa parsers de Slice 5.
+- [x] **9.3** Handler reusa parsers de Slice 5.
   - **AC:** input: `{ rutOrName: string }`. Output con `estadoRPSF`, `tipoEntidad`, `normativasAplicables[]`, `membresiaFinteChile`, `numeroRegistro`.
   - **Verify:** `npm test -- check_regulator_status` verde. No duplica parsers.
 
-- [ ] **9.4** Reglas, tests, trazas.
+- [x] **9.4** Reglas, tests, trazas.
   - **AC:** reglas `regulator.rpsf_autorizada_y_giro_consistente` (+25), `regulator.fintech_no_registrada` (-30).
   - **Verify:** `npm test` verde.
 

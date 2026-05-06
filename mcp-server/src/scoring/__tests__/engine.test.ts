@@ -112,6 +112,8 @@ describe("score — exhaustividad de reglas", () => {
       { entity: { siiStatus: "suspendido" } },
       { entity: { siiStatus: "sin_inicio" } },
       { entity: { ageMonths: 3 } }, // entity.antiguedad_lt6m
+      { regulator: { estadoRPSF: "autorizada", giroConsistente: true } },
+      { regulator: { tipoEntidad: "fintech", estadoRPSF: "no_registrada" } },
     ];
     const matchedIds = new Set<string>();
     for (const facts of allHits) {
