@@ -5,9 +5,10 @@ name: build-and-deploy
 # - Build/scan corre en cada push y PR (docker build + trivy).
 # - Deploy a Azure solo en push a main (requiere OIDC).
 #
-# Variables de repo requeridas (Settings → Secrets and variables → Actions → Variables):
+# Configuración del repo requerida (Settings → Secrets and variables → Actions → Secrets):
 #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
-#   RESOURCE_GROUP, ACR_NAME, ACR_LOGIN_SERVER
+#   RESOURCE_GROUP, ACR_NAME, ACR_LOGIN_SERVER,
+#   CONTAINER_APP_MCP, CONTAINER_APP_WEB
 
 on:
   push:
@@ -76,10 +77,8 @@ jobs:
         include:
           - package: mcp-server
             image: mcp-server
-            container_app_var: CONTAINER_APP_MCP
           - package: web
             image: web
-            container_app_var: CONTAINER_APP_WEB
     permissions:
       id-token: write
       contents: read
@@ -97,15 +96,15 @@ jobs:
           load: true
           push: false
           tags: |
-            ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
-            ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
       - name: Trivy scan (CRITICAL, HIGH)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+          image-ref: ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           ignore-unfixed: true
@@ -115,32 +114,40 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: ACR login
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: az acr login --name "${{ vars.ACR_NAME }}"
+        run: az acr login --name "${{ secrets.ACR_NAME }}"
 
       - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          docker push "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}"
-          docker push "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest"
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}"
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest"
 
       - name: Resolve target Container App
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: target
-        run: echo "name=${{ vars[matrix.container_app_var] }}" >> "$GITHUB_OUTPUT"
+        env:
+          CA_MCP: ${{ secrets.CONTAINER_APP_MCP }}
+          CA_WEB: ${{ secrets.CONTAINER_APP_WEB }}
+        run: |
+          case "${{ matrix.package }}" in
+            mcp-server) echo "name=$CA_MCP" >> "$GITHUB_OUTPUT" ;;
+            web)        echo "name=$CA_WEB" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::unknown package ${{ matrix.package }}"; exit 1 ;;
+          esac
 
       - name: Update Container App revision
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           az containerapp update \
             --name "${{ steps.target.outputs.name }}" \
-            --resource-group "${{ vars.RESOURCE_GROUP }}" \
-            --image "${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}" \
+            --resource-group "${{ secrets.RESOURCE_GROUP }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}" \
             --query "{name:name, latestRevision:properties.latestRevisionName}" \
             --output table
 
@@ -150,7 +157,7 @@ jobs:
           for attempt in 1 2 3 4 5 6; do
             STATE=$(az containerapp revision list \
               --name "${{ steps.target.outputs.name }}" \
-              --resource-group "${{ vars.RESOURCE_GROUP }}" \
+              --resource-group "${{ secrets.RESOURCE_GROUP }}" \
               --query "[?properties.active].properties.healthState" \
               --output tsv | head -1)
             echo "attempt $attempt: healthState=$STATE"

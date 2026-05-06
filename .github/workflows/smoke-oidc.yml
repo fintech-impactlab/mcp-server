@@ -4,7 +4,7 @@ name: smoke-oidc
 # desde GitHub Actions (push a main y PRs).
 # Borrar cuando build-and-deploy.yml ejercite OIDC en cada run.
 #
-# Variables de repo requeridas (Settings → Secrets and variables → Actions → Variables):
+# Configuración del repo requerida (Settings → Secrets and variables → Actions → Secrets):
 #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, RESOURCE_GROUP
 
 on:
@@ -28,9 +28,9 @@ jobs:
       - name: Azure login via OIDC
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Confirm subscription context
         run: az account show --output table
@@ -38,6 +38,6 @@ jobs:
       - name: Confirm RG access
         run: |
           az group show \
-            --name "${{ vars.RESOURCE_GROUP }}" \
+            --name "${{ secrets.RESOURCE_GROUP }}" \
             --query "{name:name, location:location, state:properties.provisioningState}" \
             --output table
