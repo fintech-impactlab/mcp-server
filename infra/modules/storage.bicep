@@ -16,6 +16,14 @@ param containerNames array = [
   'audit'
 ]
 
+@description('Nombre del File Share SMB que se monta como volumen en la Container App MCP.')
+param fileShareName string = 'mcp-data'
+
+@description('Cuota del File Share en GiB.')
+@minValue(1)
+@maxValue(102400)
+param fileShareQuotaGiB int = 100
+
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: name
   location: location
@@ -68,6 +76,22 @@ resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2
   }
 }]
 
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource dataFileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+  parent: fileService
+  name: fileShareName
+  properties: {
+    accessTier: 'TransactionOptimized'
+    shareQuota: fileShareQuotaGiB
+    enabledProtocols: 'SMB'
+  }
+}
+
 output id string = storage.id
 output name string = storage.name
 output blobEndpoint string = storage.properties.primaryEndpoints.blob
+output fileShareName string = dataFileShare.name
