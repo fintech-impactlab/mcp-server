@@ -18,6 +18,7 @@ import { createCheckDnsOwnershipTool } from "./tools/check_dns_ownership/index.j
 import { createCheckRegulatorStatusTool } from "./tools/check_regulator_status/index.js";
 import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
+import { createFullEvaluationTool } from "./tools/full_evaluation/index.js";
 import { createGetApplicableRegulationTool } from "./tools/get_applicable_regulation/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 import { createGetOfficialComplaintChannelsTool } from "./tools/get_official_complaint_channels/index.js";
@@ -48,19 +49,18 @@ async function main(): Promise<void> {
   });
 
   const cache = bootstrapCache();
-  registerTool(
-    mcp,
-    createGetMarketReferenceRatesTool({
-      cache,
-      bceConfig: {
-        baseUrl: "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx",
-        credentials: {
-          user: process.env.BCE_USER ?? "",
-          pass: process.env.BCE_PASS ?? "",
-        },
+
+  const ratesTool = createGetMarketReferenceRatesTool({
+    cache,
+    bceConfig: {
+      baseUrl: "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx",
+      credentials: {
+        user: process.env.BCE_USER ?? "",
+        pass: process.env.BCE_PASS ?? "",
       },
-    }),
-  );
+    },
+  });
+  registerTool(mcp, ratesTool);
   logger.event("server.tool_registered", { toolName: "get_market_reference_rates" });
 
   registerTool(
@@ -74,56 +74,84 @@ async function main(): Promise<void> {
   );
   logger.event("server.tool_registered", { toolName: "explain_law_simple" });
 
-  registerTool(
-    mcp,
-    createCheckBlacklistTool({
-      cache,
-      storage,
-      ...(process.env.PHISHTANK_API_KEY
-        ? { phishtankConfig: { apiKey: process.env.PHISHTANK_API_KEY } }
-        : {}),
-      urlhausConfig: {},
-    }),
-  );
+  const blacklistTool = createCheckBlacklistTool({
+    cache,
+    storage,
+    ...(process.env.PHISHTANK_API_KEY
+      ? { phishtankConfig: { apiKey: process.env.PHISHTANK_API_KEY } }
+      : {}),
+    urlhausConfig: {},
+  });
+  registerTool(mcp, blacklistTool);
   logger.event("server.tool_registered", { toolName: "check_blacklist" });
 
-  registerTool(
-    mcp,
-    createCheckWhitelistTool({
-      cache,
-      storage,
-      fintechileConfig: {},
-    }),
-  );
+  const whitelistTool = createCheckWhitelistTool({
+    cache,
+    storage,
+    fintechileConfig: {},
+  });
+  registerTool(mcp, whitelistTool);
   logger.event("server.tool_registered", { toolName: "check_whitelist" });
 
-  registerTool(mcp, createAnalyzeDomainTool());
+  const analyzeDomainTool = createAnalyzeDomainTool();
+  registerTool(mcp, analyzeDomainTool);
   logger.event("server.tool_registered", { toolName: "analyze_domain" });
 
-  registerTool(mcp, createCheckDnsOwnershipTool());
+  const checkDnsOwnershipTool = createCheckDnsOwnershipTool();
+  registerTool(mcp, checkDnsOwnershipTool);
   logger.event("server.tool_registered", { toolName: "check_dns_ownership" });
 
-  registerTool(mcp, createVerifyChileanEntityTool());
+  const verifyChileanEntityTool = createVerifyChileanEntityTool();
+  registerTool(mcp, verifyChileanEntityTool);
   logger.event("server.tool_registered", { toolName: "verify_chilean_entity" });
+
+  const regulatorStatusTool = createCheckRegulatorStatusTool({
+    cache,
+    storage,
+    fintechileConfig: {},
+  });
+  registerTool(mcp, regulatorStatusTool);
+  logger.event("server.tool_registered", { toolName: "check_regulator_status" });
+
+  const businessModelTool = createAnalyzeBusinessModelTool({
+    getRates: async () => {
+      try {
+        const r = await ratesTool.handler({});
+        if (r.rates?.tasaMaximaConvencional !== undefined) {
+          return { tasaMaximaConvencionalPct: r.rates.tasaMaximaConvencional };
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+  });
+  registerTool(mcp, businessModelTool);
+  logger.event("server.tool_registered", { toolName: "analyze_business_model" });
+
+  const applicableRegulationTool = createGetApplicableRegulationTool();
+  registerTool(mcp, applicableRegulationTool);
+  logger.event("server.tool_registered", { toolName: "get_applicable_regulation" });
+
+  const complaintChannelsTool = createGetOfficialComplaintChannelsTool();
+  registerTool(mcp, complaintChannelsTool);
+  logger.event("server.tool_registered", { toolName: "get_official_complaint_channels" });
 
   registerTool(
     mcp,
-    createCheckRegulatorStatusTool({
-      cache,
-      storage,
-      fintechileConfig: {},
+    createFullEvaluationTool({
+      checkBlacklist: (input) => blacklistTool.handler({ input }),
+      checkWhitelist: (input) => whitelistTool.handler({ input }),
+      analyzeDomain: (url) => analyzeDomainTool.handler({ url }),
+      checkDnsOwnership: (domain) => checkDnsOwnershipTool.handler({ domain }),
+      verifyChileanEntity: (rut) => verifyChileanEntityTool.handler({ rut }),
+      checkRegulatorStatus: (rutOrName) => regulatorStatusTool.handler({ rutOrName }),
+      analyzeBusinessModel: (text) => businessModelTool.handler({ text }),
+      getApplicableRegulation: (params) => applicableRegulationTool.handler(params),
+      getOfficialComplaintChannels: (params) => complaintChannelsTool.handler(params),
     }),
   );
-  logger.event("server.tool_registered", { toolName: "check_regulator_status" });
-
-  registerTool(mcp, createAnalyzeBusinessModelTool());
-  logger.event("server.tool_registered", { toolName: "analyze_business_model" });
-
-  registerTool(mcp, createGetApplicableRegulationTool());
-  logger.event("server.tool_registered", { toolName: "get_applicable_regulation" });
-
-  registerTool(mcp, createGetOfficialComplaintChannelsTool());
-  logger.event("server.tool_registered", { toolName: "get_official_complaint_channels" });
+  logger.event("server.tool_registered", { toolName: "full_evaluation" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

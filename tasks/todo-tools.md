@@ -347,23 +347,23 @@ Catálogo de canales formales por tipo + situación.
 
 Orquestación determinística con corte temprano. Cierra el plan.
 
-- [ ] **13.1** Reglas de corte temprano.
+- [x] **13.1** Reglas de corte temprano.
   - **AC:** `src/tools/full_evaluation/short-circuit.ts`. Reglas: si `check_blacklist` retorna hit con confianza alta (≥2 fuentes prenden con weight ≤ -40 cada una) → cortar después de Etapa 1. Si `check_regulator_status` retorna `rpsf_autorizada` Y dominio antiguo (>2 años) Y SSL DigiCert/equivalente → cortar después de Etapa 3 con verdict positivo.
   - **Verify:** tests para cada regla de corte.
 
-- [ ] **13.2** Orquestador secuencial.
+- [x] **13.2** Orquestador secuencial.
   - **AC:** `src/tools/full_evaluation/orchestrator.ts`. Llama tools en orden de etapa. Pasa output de Etapa 2-3 como input de Etapa 4 (tipoEntidad detectado). Respeta rate limits llamando a fuentes scrapeadas con throttle. **No es agente** — flujo fijo, sin decisiones de LLM.
   - **Verify:** test E2E con fixture: full chain ejecuta en orden esperado, `stoppedAt` indica dónde cortó si corresponde.
 
-- [ ] **13.3** Consolidación de scores parciales.
+- [x] **13.3** Consolidación de scores parciales.
   - **AC:** suma de scores de tools llamadas, con razones agregadas. Output: `totalScore`, `verdict: "alto_riesgo"|"riesgo_medio"|"sin_senales_negativas"`, `confianza: 0-100`.
   - **Verify:** test con fixture multi-tool.
 
-- [ ] **13.4** Recomendaciones de canal basadas en verdict.
+- [x] **13.4** Recomendaciones de canal basadas en verdict.
   - **AC:** llama `get_official_complaint_channels` con `tipoEntidad` y `situacion` derivada de los flags detectados.
   - **Verify:** test verifica que canales sugeridos coinciden con tipoEntidad+situación.
 
-- [ ] **13.5** Schemas + tool registrada + tests + trazas.
+- [x] **13.5** Schemas + tool registrada + tests + trazas.
   - **AC:** input: `{ input: string }`. Output: consolidación completa + breakdown por etapa + recomendaciones.
   - **Verify:** `tools/call name=full_evaluation arguments={"input":"<dominio-fixture>"}` retorna respuesta completa. Trazas marcan corte temprano cuando aplica.
 
