@@ -177,45 +177,41 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
 
   const calls = pickToolCalls(input);
   const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const outcomes: ToolOutcome[] = [];
 
-  const settled = await Promise.allSettled(
-    calls.map(async ({ tool, arguments: args }) => {
+  for (const { tool, arguments: args } of calls) {
+    const stage = TOOL_STAGES[tool] ?? "otro";
+    try {
       const result = await client.callTool(
         { name: tool, arguments: args },
         undefined,
         { signal },
       );
       const payload = extractToolPayload(
-        result as { content?: Array<{ type: string; text?: string }>; structuredContent?: unknown; isError?: boolean },
+        result as {
+          content?: Array<{ type: string; text?: string }>;
+          structuredContent?: unknown;
+          isError?: boolean;
+        },
       );
-      if (!payload.ok) throw new Error(payload.error);
-      return { tool, data: payload.data };
-    }),
-  );
+      if (!payload.ok) {
+        outcomes.push({ tool, stage, ok: false, error: payload.error });
+        continue;
+      }
+      outcomes.push({ tool, stage, ok: true, data: payload.data });
+    } catch (err) {
+      const isTimeout =
+        err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError";
+      outcomes.push({
+        tool,
+        stage,
+        ok: false,
+        error: isTimeout ? "timeout" : err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   await client.close().catch(() => {});
-
-  const outcomes: ToolOutcome[] = settled.map((s, i) => {
-    const callDef = calls[i];
-    if (!callDef) {
-      return { tool: "unknown", stage: "unknown", ok: false, error: "internal" };
-    }
-    const tool = callDef.tool;
-    const stage = TOOL_STAGES[tool] ?? "otro";
-    if (s.status === "fulfilled") {
-      return { tool, stage, ok: true, data: s.value.data };
-    }
-    const err = s.reason;
-    if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError") {
-      return { tool, stage, ok: false, error: "timeout" };
-    }
-    return {
-      tool,
-      stage,
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  });
 
   const okCount = outcomes.filter((o) => o.ok).length;
   if (okCount === 0) {
