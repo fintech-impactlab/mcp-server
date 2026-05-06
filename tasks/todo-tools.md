@@ -307,19 +307,19 @@ Reglas determinísticas + integración con Slice 2. **Disclaimer obligatorio.**
 
 Catálogos en código. Bajo riesgo, alto valor regulatorio.
 
-- [ ] **11.1** Catálogo de leyes.
+- [x] **11.1** Catálogo de leyes.
   - **AC:** `src/constants/laws.ts` con 11 leyes del README (21.521, 21.398, 21.673, 21.459, 21.663, 21.719, 19.628, 20.555, 19.496, 18.010, Ley General de Bancos). Cada entrada: `id`, `nombre`, `articulosClave[]`, `vigenciaDesde`, `vigenciaHasta?`, `tema[]`.
   - **Verify:** test que valida estructura + que no hay leyes duplicadas. Test future-proof: `Ley 21.719` tiene `vigenciaDesde: "2026-12-01"`.
 
-- [ ] **11.2** Catálogo de normativas CMF.
+- [x] **11.2** Catálogo de normativas CMF.
   - **AC:** `src/constants/cmf-norms.ts`: NCG 502, 503, 504, 514, Manual SIF, Circular 2.345.
   - **Verify:** test estructural.
 
-- [ ] **11.3** Mapping (tipoEntidad, situacion) → leyesAplicables[].
+- [x] **11.3** Mapping (tipoEntidad, situacion) → leyesAplicables[].
   - **AC:** tabla en `src/constants/regulation-matrix.ts`. Cubre las 7 situaciones del README (transacción no reconocida, suplantación, cargo abusivo, oferta de inversión sospechosa, problema de crédito, brecha de datos, etc.).
   - **Verify:** test cubre 7×8 = 56 combinaciones (snapshot).
 
-- [ ] **11.4** Schemas + handler + tests.
+- [x] **11.4** Schemas + handler + tests.
   - **AC:** input: `{ tipoEntidad, situacion }`. Output: `leyesAplicables[]`, `normativasCMF[]`, `derechos[]`, `plazosLegales[]`.
   - **Verify:** `npm test -- get_applicable_regulation` verde.
 

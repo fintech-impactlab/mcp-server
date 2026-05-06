@@ -18,6 +18,7 @@ import { createCheckDnsOwnershipTool } from "./tools/check_dns_ownership/index.j
 import { createCheckRegulatorStatusTool } from "./tools/check_regulator_status/index.js";
 import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
+import { createGetApplicableRegulationTool } from "./tools/get_applicable_regulation/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 import { createVerifyChileanEntityTool } from "./tools/verify_chilean_entity/index.js";
 
@@ -116,6 +117,9 @@ async function main(): Promise<void> {
 
   registerTool(mcp, createAnalyzeBusinessModelTool());
   logger.event("server.tool_registered", { toolName: "analyze_business_model" });
+
+  registerTool(mcp, createGetApplicableRegulationTool());
+  logger.event("server.tool_registered", { toolName: "get_applicable_regulation" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
