@@ -138,6 +138,7 @@ module webIdentity './modules/web-identity.bicep' = {
     location: location
     tags: commonTags
     acrName: acr.outputs.name
+    keyVaultName: keyVault.outputs.name
   }
 }
 
@@ -165,6 +166,18 @@ module webApp './modules/container-app.bicep' = {
       {
         name: 'NEXT_TELEMETRY_DISABLED'
         value: '1'
+      }
+    ]
+    secrets: [
+      {
+        name: 'mcp-api-key-web'
+        keyVaultUrl: '${keyVault.outputs.uri}secrets/mcp-api-key-web'
+      }
+    ]
+    secretEnvVars: [
+      {
+        name: 'MCP_API_KEY'
+        secretRef: 'mcp-api-key-web'
       }
     ]
   }

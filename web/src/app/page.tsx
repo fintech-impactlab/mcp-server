@@ -3,6 +3,13 @@
 export const dynamic = "force-dynamic";
 
 const MCP_URL = process.env.MCP_URL ?? "http://localhost:3001";
+const MCP_API_KEY = process.env.MCP_API_KEY;
+
+if (!MCP_API_KEY) {
+  console.warn(
+    "MCP_API_KEY no está seteada — los requests al MCP irán sin Authorization (modo dev)",
+  );
+}
 
 type HealthResponse = {
   status: string;
@@ -17,9 +24,14 @@ type HealthResult =
 async function fetchMcpHealth(): Promise<HealthResult> {
   const start = Date.now();
   try {
+    const headers: Record<string, string> = {};
+    if (MCP_API_KEY) {
+      headers["Authorization"] = `Bearer ${MCP_API_KEY}`;
+    }
     const res = await fetch(`${MCP_URL}/health`, {
       cache: "no-store",
       signal: AbortSignal.timeout(2000),
+      headers,
     });
     const latencyMs = Date.now() - start;
     if (!res.ok) {
