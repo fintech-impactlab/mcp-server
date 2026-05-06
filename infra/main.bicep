@@ -117,8 +117,8 @@ module mcpApp './modules/container-app.bicep' = {
     acrLoginServer: acr.outputs.loginServer
     userAssignedIdentityId: mcpIdentity.outputs.id
     targetPort: 3001
-    external: false
-    minReplicas: 0
+    external: true
+    minReplicas: 1
     maxReplicas: 3
     cpu: '0.5'
     memory: '1Gi'

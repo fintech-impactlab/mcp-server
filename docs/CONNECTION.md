@@ -40,7 +40,7 @@ Guía operativa para probar el MCP `ca-mcp-fintech-dev` desplegado en el RG `oar
 | `http://ca-mcp-fintech-dev/health` | solo dentro del CAE | ninguno | Health check directo del MCP. |
 | `http://ca-mcp-fintech-dev/mcp` (POST) | solo dentro del CAE | `Bearer <plaintext>` | Protocolo MCP (JSON-RPC over Streamable HTTP). Lo consumen clientes MCP. |
 
-**Limitación clave:** el MCP es **internal** al CAE (`external: false` en `infra/main.bicep:121`). No se puede curl-ear desde Internet ni configurar Claude Desktop directamente sin: (a) cambiar a `external: true`, (b) montar un proxy en el web app, o (c) VNET integration + Private Endpoint.
+**Acceso público desde 2026-05-06:** el MCP está `external: true` en `infra/main.bicep:120` con `minReplicas: 1` (sin cold starts). Cualquier cliente MCP HTTP con el bearer correcto puede conectarse. Ver Camino C abajo.
 
 ## 3. Recuperar el Bearer token
 
@@ -113,15 +113,71 @@ az containerapp exec -n "$WEB" -g $RG --command \
 
 > **Nota sobre la imagen:** la imagen del web app (Next.js sobre node-alpine) **no incluye `curl`** por default; `wget` sí está. Por eso los ejemplos usan `wget --post-data`. El header `Accept: application/json, text/event-stream` es requerido por el `StreamableHTTPServerTransport` del MCP SDK.
 
-## 6. Camino C — Cliente MCP real (Claude Desktop, IDE) — **NO disponible hoy**
+## 6. Camino C — Cliente MCP real (Claude Code, Claude Desktop, IDE) ✅
 
-Para conectar un cliente MCP estándar (Claude Desktop, VS Code MCP extension, etc.) hace falta uno de estos cambios de infra:
+Desde 2026-05-06 el MCP se expone públicamente con auth bearer (`external: true` en `infra/main.bicep:120`, `minReplicas: 1` para evitar cold starts). FQDN público:
 
-- **(C1)** Hacer `external: true` en `infra/main.bicep:121` y rotar el bearer asumiendo exposición pública. Cambio de 1 línea + redeploy. Costo: el endpoint queda expuesto a Internet con auth de bearer; aceptable si rotás claves periódicamente y monitoreás logs de auth.failure.
-- **(C2)** Agregar un route handler `web/src/app/api/mcp/route.ts` que sea un proxy del web al MCP interno. Costo: hay que reimplementar el streaming POST → MCP (Next.js no streamea body grande por default; revisar `runtime: 'nodejs'` + `dynamic: 'force-dynamic'`).
-- **(C3)** Private Endpoint + VNET integration al CAE. Costo: cambio mayor de infra, costo extra del PE (~$7/mes). Justificable solo en prod.
+```
+https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io
+```
 
-Ninguno está implementado todavía. Está fuera del alcance del slice plan-storage; quedaría como tema para `tasks/todo.md` Slice 7+ o un nuevo plan.
+### Registrar en Claude Code
+
+```bash
+RG=oarocha-fintech
+KV=$(az deployment group show -g $RG -n storage-volume-s1 --query 'properties.outputs.keyVaultName.value' -o tsv)
+BEARER=$(az keyvault secret show --vault-name "$KV" --name mcp-api-key-web --query value -o tsv)
+
+claude mcp add --transport http fintech-mcp \
+  https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io/mcp \
+  --header "Authorization: Bearer $BEARER"
+```
+
+Verificá con `/mcp` dentro de Claude Code o `claude mcp list`. Las dos tools (`get_market_reference_rates`, `explain_law_simple`, más las que la otra sesión vaya registrando) aparecen listadas.
+
+### Otros clientes MCP
+
+Cualquier cliente que soporte el transport HTTP (Streamable) sirve. Datos de conexión:
+
+| Campo | Valor |
+|-------|-------|
+| URL | `https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io/mcp` |
+| Method | POST |
+| Auth | `Authorization: Bearer <plaintext de KV/mcp-api-key-web>` |
+| Headers obligatorios | `Content-Type: application/json`, `Accept: application/json, text/event-stream` |
+| Protocol version | `2024-11-05` (negociada en `initialize`) |
+
+### Validación rápida con curl
+
+```bash
+URL="https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io"
+KV=$(az deployment group show -g oarocha-fintech -n storage-volume-s1 --query 'properties.outputs.keyVaultName.value' -o tsv)
+BEARER=$(az keyvault secret show --vault-name "$KV" --name mcp-api-key-web --query value -o tsv)
+
+# Health check (sin auth)
+curl -sS "$URL/health"
+
+# initialize handshake (mandatorio antes de tools/list)
+curl -sS -X POST "$URL/mcp" \
+  -H "Authorization: Bearer $BEARER" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+> **Importante sobre stateless:** el MCP corre con `sessionIdGenerator: undefined` (`mcp-server/src/index.ts:62`), o sea cada POST es una nueva sesión. Eso significa que `tools/list` o `tools/call` directos sin `initialize` previo en la misma request devuelven `-32601 Method not found`. Los clientes MCP estándar (Claude Code, etc.) hacen initialize automáticamente, así que no es problema en uso real — solo en tests manuales con curl.
+
+### Seguridad
+
+- Auth bearer obligatoria en `/mcp` POST. Token aleatorio de 32 bytes URL-safe, vive en Key Vault (`mcp-api-key-web`).
+- Logs de auth failure se hashean (no se loguea el bearer plaintext, ver `auth.failure` en logs).
+- Para rotar el bearer: re-correr `node mcp-server/scripts/bootstrap-mcp-api-keys.mjs --vault $KV` y redeployar el web app para que tome el nuevo plaintext (también hay que actualizar el header en Claude Code con `claude mcp remove fintech-mcp` + `claude mcp add` con el nuevo bearer).
+- `external: true` queda en `infra/main.bicep:120`. Si querés revertir a internal, cambiar a `false` y redeployar (rompe los clientes externos).
+
+### Alternativas no implementadas
+
+- **(C2)** Proxy en el web (`web/src/app/api/mcp/route.ts`) que reenvíe POST al MCP interno. Más complejo pero permite mantener `external: false` en el MCP. Útil si querés exponer solo subset de tools o agregar rate limiting al frente.
+- **(C3)** Private Endpoint + VNET integration. Costo extra (~$7/mes), justificable solo en prod si el bearer no alcanza como gate.
 
 ## 7. Estado actual del deploy (2026-05-06)
 
