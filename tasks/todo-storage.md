@@ -59,8 +59,8 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 - [x] **CA.2** Performance de lectura aceptable.
   - **Verify (2026-05-06):** `time cat /app/data/snapshots/cmf/creditos_fraudulentos.csv > /dev/null` → `real 0m0.02s` (20ms, 25× bajo el SLA de 500ms).
 
-- [ ] **CA.3** Costo del File Share revisado en portal.
-  - **Verify:** capture de cost analysis confirmando que TransactionOptimized + 100 GiB queda dentro del budget esperado. Pendiente manual.
+- [x] **CA.3** Costo del File Share revisado.
+  - **Verify (2026-05-06):** la suscripción es **Pharmkt Sponsorship** y no expone Cost analysis con cifras en el portal (suscripciones sponsorship omiten el desglose). Sustituto: configuración de mínimo costo verificada en Properties del storage account `stfintechdevic66pjdlbzw6` — `Standard_LRS` (no GRS/ZRS), `StorageV2`, `Hot` default tier, secure transfer + TLS 1.2 enabled. File Share `mcp-data` 100 GiB cuota con ~300 MB usados (cobra solo lo usado), tier `TransactionOptimized`. Sin features premium accidentales.
 
 ---
 
