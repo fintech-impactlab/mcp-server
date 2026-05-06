@@ -132,11 +132,19 @@ module mcpApp './modules/container-app.bicep' = {
         name: 'mcp-api-keys'
         keyVaultUrl: '${keyVault.outputs.uri}secrets/mcp-api-keys'
       }
+      {
+        name: 'anthropic-api-key'
+        keyVaultUrl: '${keyVault.outputs.uri}secrets/anthropic-api-key'
+      }
     ]
     secretEnvVars: [
       {
         name: 'MCP_API_KEYS_SECRET'
         secretRef: 'mcp-api-keys'
+      }
+      {
+        name: 'ANTHROPIC_API_KEY'
+        secretRef: 'anthropic-api-key'
       }
     ]
     envVars: [

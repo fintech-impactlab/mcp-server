@@ -22,7 +22,10 @@ import { createFullEvaluationTool } from "./tools/full_evaluation/index.js";
 import { createGetApplicableRegulationTool } from "./tools/get_applicable_regulation/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 import { createGetOfficialComplaintChannelsTool } from "./tools/get_official_complaint_channels/index.js";
+import { createSmartEvaluationTool } from "./tools/smart_evaluation/index.js";
 import { createVerifyChileanEntityTool } from "./tools/verify_chilean_entity/index.js";
+
+import { createAnthropicClient, type AnthropicClientLike } from "./lib/anthropic.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 
@@ -44,6 +47,29 @@ async function main(): Promise<void> {
   logger.event("server.auth_keys_loaded", {});
 
   const cache = bootstrapCache();
+
+  // Anthropic opcional: si la key no está o es un placeholder, smart_evaluation
+  // no se registra. Las keys reales de Anthropic empiezan con "sk-ant-".
+  let anthropicClient: AnthropicClientLike | null = null;
+  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
+  if (anthropicKey !== undefined && anthropicKey.startsWith("sk-ant-")) {
+    try {
+      anthropicClient = createAnthropicClient({ apiKey: anthropicKey });
+      logger.event("server.anthropic_ready", {});
+    } catch (err) {
+      logger.event(
+        "server.anthropic_unavailable",
+        { cause: err instanceof Error ? err.message : String(err) },
+        "warn",
+      );
+    }
+  } else {
+    logger.event(
+      "server.anthropic_unavailable",
+      { reason: anthropicKey ? "ANTHROPIC_API_KEY parece placeholder (no empieza con sk-ant-)" : "ANTHROPIC_API_KEY unset" },
+      "warn",
+    );
+  }
 
   type Deps = { cache: ReturnType<typeof bootstrapCache>; storage: ReturnType<typeof createStorage> };
 
@@ -126,27 +152,40 @@ async function main(): Promise<void> {
     const complaintChannelsTool = createGetOfficialComplaintChannelsTool();
     registerTool(mcp, complaintChannelsTool);
 
-    registerTool(
-      mcp,
-      createFullEvaluationTool({
-        checkBlacklist: (input) => blacklistTool.handler({ input }),
-        checkWhitelist: (input) => whitelistTool.handler({ input }),
-        analyzeDomain: (url) => analyzeDomainTool.handler({ url }),
-        checkDnsOwnership: (domain) => checkDnsOwnershipTool.handler({ domain }),
-        verifyChileanEntity: (rut) => verifyChileanEntityTool.handler({ rut }),
-        checkRegulatorStatus: (rutOrName) => regulatorStatusTool.handler({ rutOrName }),
-        analyzeBusinessModel: (text) => businessModelTool.handler({ text }),
-        getApplicableRegulation: (params) => applicableRegulationTool.handler(params),
-        getOfficialComplaintChannels: (params) => complaintChannelsTool.handler(params),
-      }),
-    );
+    const fullEvaluationTool = createFullEvaluationTool({
+      checkBlacklist: (input) => blacklistTool.handler({ input }),
+      checkWhitelist: (input) => whitelistTool.handler({ input }),
+      analyzeDomain: (url) => analyzeDomainTool.handler({ url }),
+      checkDnsOwnership: (domain) => checkDnsOwnershipTool.handler({ domain }),
+      verifyChileanEntity: (rut) => verifyChileanEntityTool.handler({ rut }),
+      checkRegulatorStatus: (rutOrName) => regulatorStatusTool.handler({ rutOrName }),
+      analyzeBusinessModel: (text) => businessModelTool.handler({ text }),
+      getApplicableRegulation: (params) => applicableRegulationTool.handler(params),
+      getOfficialComplaintChannels: (params) => complaintChannelsTool.handler(params),
+    });
+    registerTool(mcp, fullEvaluationTool);
+
+    if (anthropicClient !== null) {
+      const smartTool = createSmartEvaluationTool({
+        anthropic: anthropicClient,
+        fullEvaluationTool: {
+          handler: (params) =>
+            fullEvaluationTool.handler({
+              input: params.input,
+              text: params.text,
+              situacion: params.situacion,
+            } as Parameters<typeof fullEvaluationTool.handler>[0]),
+        },
+      });
+      registerTool(mcp, smartTool);
+    }
 
     return mcp;
   }
 
   // Warmup: validar que el factory no lanza antes de aceptar tráfico.
   buildMcpServer({ cache, storage });
-  logger.event("server.tools_ready", { count: 12 });
+  logger.event("server.tools_ready", { count: anthropicClient !== null ? 13 : 12 });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

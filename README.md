@@ -286,11 +286,21 @@ Devuelve los canales formales de denuncia que aplican al caso, considerando las 
 
 Tool de orquestación que invoca internamente la cadena completa con corte temprano.
 
-- **Input:** RUT, URL o nombre.
+- **Input:** RUT, URL o nombre **bien formateado**.
 - **Comportamiento:** ejecuta secuencialmente las tools de etapas 1 a 4, aplicando reglas de corte temprano (ej: si `check_blacklist` retorna positivo con confianza alta, no ejecuta el resto).
 - **Output:** consolidación de todos los outputs parciales + score total + verdict resumido + recomendaciones de canal.
-- **Naturaleza:** orquestación con **scoring 100 % determinístico**. La capa orquestadora puede consultar a Claude vía API para clasificar inputs ambiguos (URL corta, URL incompleta, RUT mal formateado, nombre con variantes) y decidir secuencia de tools, pero **el `score` y el `verdict` siempre vienen del motor de reglas** — el LLM no los toca. Prompt y modelo versionados, trazabilidad por llamada, fallback determinístico si la API cae.
-- **Cuándo usarla:** clientes que quieren "todo o nada" sin componer la cadena ellos mismos.
+- **Naturaleza:** orquestación 100 % determinística. Sin LLM. Reusa el motor de reglas para `score` y `verdict`.
+- **Cuándo usarla:** clientes que ya tienen el input normalizado y quieren "todo o nada" sin componer la cadena ellos mismos.
+
+#### `smart_evaluation(input, text?, situacion?)`
+
+Versión "tolerante" de `full_evaluation`. Usa Claude (Haiku 4.5) para clasificar y normalizar inputs ambiguos antes de delegar al motor de reglas. El `score` y `verdict` siguen viniendo de las reglas determinísticas — el LLM nunca los toca.
+
+- **Input cubierto:** URL completa, URL sin scheme (`scam.cl`), URL corta (`bit.ly/abc` → expansión real vía HEAD), RUT con/sin puntos/DV (calcula DV si falta), nombre con variantes, lenguaje natural ("¿es scam crediacceso.cash?" → escala a tool-use).
+- **Output:** mismo shape que `full_evaluation` + `classification` (qué decidió Claude) + `toolUseTrace` (qué tools se llamaron en path ambiguo) + `routedTo` (`full_evaluation` o `tool_use_loop`).
+- **Naturaleza:** orquestación con LLM bajo guardrails: prompt versionado y hasheado, trazabilidad por llamada (`claude.call` event con tokens), cost caps (5 iters, 20k tokens), fallback determinístico si la API de Claude cae.
+- **Disponibilidad:** la tool **no se registra** si `ANTHROPIC_API_KEY` no está seteada o es placeholder. El resto del MCP funciona normalmente. Ver [`docs/SECRETS.md`](docs/SECRETS.md).
+- **Costo:** ver [`docs/COST.md`](docs/COST.md). ~$0.0003 por request en path B1, ~$0.005 path B3.
 
 ---
 

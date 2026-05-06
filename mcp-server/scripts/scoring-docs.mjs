@@ -33,6 +33,10 @@ lines.push("Cumple la promesa del [README.md § Sistema de scoring](README.md#si
 lines.push("");
 lines.push(`**Reglas:** ${rules.length}.`);
 lines.push("");
+lines.push(
+  "> El `score` y el `verdict` se calculan **siempre** vía este motor, incluso desde la tool `smart_evaluation` que orquesta con LLM. El LLM **nunca** los toca: solo decide qué tools llamar y cómo normalizar inputs ambiguos. Los `Facts` que alimentan al motor vienen únicamente de las tools individuales — auditables y citables.",
+);
+lines.push("");
 
 lines.push("## Convenciones");
 lines.push("");
