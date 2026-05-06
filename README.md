@@ -289,7 +289,7 @@ Tool de orquestación que invoca internamente la cadena completa con corte tempr
 - **Input:** RUT, URL o nombre.
 - **Comportamiento:** ejecuta secuencialmente las tools de etapas 1 a 4, aplicando reglas de corte temprano (ej: si `check_blacklist` retorna positivo con confianza alta, no ejecuta el resto).
 - **Output:** consolidación de todos los outputs parciales + score total + verdict resumido + recomendaciones de canal.
-- **Naturaleza:** es **orquestación determinística**, no un agente. Sigue reglas de composición fijas, no decisiones de un LLM.
+- **Naturaleza:** orquestación con **scoring 100 % determinístico**. La capa orquestadora puede consultar a Claude vía API para clasificar inputs ambiguos (URL corta, URL incompleta, RUT mal formateado, nombre con variantes) y decidir secuencia de tools, pero **el `score` y el `verdict` siempre vienen del motor de reglas** — el LLM no los toca. Prompt y modelo versionados, trazabilidad por llamada, fallback determinístico si la API cae.
 - **Cuándo usarla:** clientes que quieren "todo o nada" sin componer la cadena ellos mismos.
 
 ---

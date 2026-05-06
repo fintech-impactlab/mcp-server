@@ -14,7 +14,8 @@
 **Outcome:**
 - Endpoint MCP sobre Streamable HTTP en `ca-mcp-<env>` (ingress interno).
 - Cada tool retorna **hechos crudos + score parcial determinístico + razones**, nunca opinión.
-- Sin LLM dentro del MCP. Toda lógica de scoring y orquestación es código auditable.
+- **Determinismo en scoring**: el motor (`scoring/rules.ts`, `scoring/engine.ts`) es 100 % auditable, sin LLM, sin random.
+- **Orquestación con LLM permitida**: la capa orquestadora (`full_evaluation` y/o un servicio upstream) puede llamar a la API de Claude para clasificar inputs ambiguos (URLs cortas/incompletas, RUTs sin formato, nombres de empresa) y decidir secuencia de tools. El LLM nunca calcula `score` ni `verdict` — esos siguen viniendo del motor determinístico. Prompt y modelo versionados en código; toda llamada emite trazabilidad (`source: claude-api`, modelo, tokens); fallback determinístico obligatorio.
 
 **Non-goals** (resumen — ver sección "Lo que el MCP NO hace" del README para detalle):
 - No genera borradores de denuncia.
@@ -274,9 +275,10 @@ CI ejecuta: `lint`, `typecheck`, `test:coverage`, `build` antes del docker build
 
 ### 6.5 Determinismo
 
-- Sin LLM en `src/scoring/`, `src/tools/full_evaluation/`, ni en parsers.
+- **Sin LLM en `src/scoring/` ni en parsers** (`src/tools/*/parsers/`). El motor de reglas y los parsers de fuentes externas son 100 % determinísticos.
+- **LLM permitido en `src/tools/full_evaluation/` y en orquestadores upstream** para clasificación de inputs ambiguos y decisión de secuencia de tools, bajo las condiciones de la sección 2 (prompt versionado, trazabilidad, fallback determinístico, sin influencia en `score`/`verdict`).
 - Sin `Math.random`, sin `Date.now()` dentro de `score()` (Date.now solo en sources.fetchedAt y trazas).
-- Mismo input → mismo output, siempre.
+- Mismo input → mismo output, siempre, **en el motor de reglas**. La capa orquestadora puede tener no-determinismo controlado en la decisión de qué tools llamar; los outputs de cada tool individual siguen siendo determinísticos.
 
 ### 6.6 Comentarios
 

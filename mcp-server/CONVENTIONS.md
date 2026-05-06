@@ -116,7 +116,8 @@ Helpers compartidos (no por tool) viven en:
 - **Plaintext nunca persiste** (ya cubierto en § Authentication, aplica también acá: ningún input del usuario se loguea raw).
 - **Toda respuesta de fuente externa pasa por Zod `.safeParse()`** antes de propagar. Si falla, se lanza la subclase de `ToolError` correspondiente (ej. `BCEError`).
 - **`hashInput(s)` es obligatorio** para todo log que toque RUT, URL, dominio o nombre de empresa. La regla operativa: si un argumento de `logger.event` viene de `req` o de input de usuario, debe pasar primero por `hashInput`.
-- **Sin LLM en `src/scoring/` ni en `src/tools/full_evaluation/`.** Toda lógica de scoring y orquestación es código auditable.
+- **Sin LLM en `src/scoring/` ni en parsers (`src/tools/*/parsers/`).** El motor de reglas y los parsers de fuentes externas son 100 % auditables.
+- **LLM permitido en `src/tools/full_evaluation/` y orquestadores upstream** para clasificar inputs ambiguos (URLs cortas, RUTs sin formato, nombres) y decidir secuencia de tools. El LLM nunca calcula `score` ni `verdict`. Prompt y modelo versionados en código. Toda llamada emite `tool.call { source: "claude-api", model, tokens }`. Fallback determinístico obligatorio si la API cae.
 - **Sin `throw new Error("...")` genérico.** Siempre subclase de `ToolError` con `source`, `cause`, `retriable`, `userFacing`.
 - **Timeouts explícitos** en todo request a fuente externa: 5 s default, 8 s en multi-fuente, 30 s en `full_evaluation`.
 - **Cache TTL por tipo:** tasas BCE 24 h, leyes BCN 7 d, RPSF 24 h, CMF Alertas 24 h. Reducir TTL bajo 1 h requiere review (rate limit risk).
