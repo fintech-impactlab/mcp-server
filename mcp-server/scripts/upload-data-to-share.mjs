@@ -26,6 +26,7 @@
 //     con scripts/seed-storage-key-secret.mjs (S1.2).
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { exit } from "node:process";
 
@@ -185,9 +186,21 @@ uploadBatch({
   destination: "normativas",
 });
 
-// Directorios vacíos para que el layout esté completo desde día 0.
-// Jobs/runtime los poblarán cuando corresponda.
+// Snapshots RPSF: si existen CSVs locales en data/snapshots/rpsf/ los
+// sincronizamos. Si no, queda como directorio vacío y los jobs lo poblarán.
 ensureDirectory({ account: storageAccount, key, share, dir: "snapshots/rpsf" });
+const rpsfLocalDir = path.join(dataDir, "snapshots", "rpsf");
+if (existsSync(rpsfLocalDir)) {
+  uploadBatch({
+    account: storageAccount,
+    key,
+    share,
+    source: rpsfLocalDir,
+    destination: "snapshots/rpsf",
+    pattern: "*.csv",
+  });
+}
+
 ensureDirectory({ account: storageAccount, key, share, dir: "audit" });
 
 process.stdout.write(`# done — File Share '${share}' synced from ${dataDir}\n`);
