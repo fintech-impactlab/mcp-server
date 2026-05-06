@@ -10,31 +10,31 @@
 
 Sin esto, cada tool reinventa estructura, errores, cache y logging. Atómico pero indispensable.
 
-- [ ] **0.1** Estructura `src/tools/<name>/` por tool.
+- [x] **0.1** Estructura `src/tools/<name>/` por tool.
   - **AC:** convención fija: `src/tools/<name>/index.ts` (export de la tool), `<name>.schema.ts` (Zod input/output), `<name>.client.ts` (cliente de fuente externa), `<name>.test.ts`, `__fixtures__/`. Documentado en `mcp-server/CONVENTIONS.md`.
   - **Verify:** `find mcp-server/src/tools -mindepth 2 -name "index.ts" | wc -l` retorna ≥1 (tras Slice 2 será ≥2 etc.).
 
-- [ ] **0.2** Helper de errores tipados por fuente.
+- [x] **0.2** Helper de errores tipados por fuente.
   - **AC:** clase base `ToolError` + subclases por fuente (`BCEError`, `BCNError`, `CMFFetchError`, `PhishTankError`, `SIIError`, `NICError`, `FinteChileError`, `WHOISError`, `URLhausError`, `SafeBrowsingError`). Cada error lleva `source`, `cause`, `retriable: boolean`, `userFacing: string`.
   - **Verify:** `npm test -- errors` valida que cada subclase mantiene el stack de la causa y serializa con `source`. CLAUDE.md prohíbe `throw new Error("...")` genérico.
 
-- [ ] **0.3** Helper de logging con hash sha256 truncado.
+- [x] **0.3** Helper de logging con hash sha256 truncado.
   - **AC:** función `hashInput(s: string): string` retorna `sha256(s).slice(0,8)`. Test prueba que es determinístico y no reversible. Función exportada en `src/lib/logging.ts`. Compatible con Slice 7.3 de infra (mismo nombre y comportamiento).
   - **Verify:** `npm test -- hashInput` verde. ESLint rule (custom o `no-console` con override) bloquea `console.log` con argumentos string que no pasaron por `hashInput`.
 
-- [ ] **0.4** Cache helper Storage Blob + fallback in-memory.
+- [x] **0.4** Cache helper Storage Blob + fallback in-memory.
   - **AC:** módulo `src/lib/cache.ts` expone `getOrSet(key, ttlSeconds, fetcher)`. En producción usa `@azure/storage-blob` con managed identity; en dev (sin MI) cae a `Map` in-memory con misma interfaz. TTL respetado (lee blob `lastModified`, recomputa si expirado). Containers usados: `cache-cmf`, `cache-rpsf`, `audit` (creados por infra Slice 3.2).
   - **Verify:** test integración con Azurite (Storage Blob emulator) + test unitario de fallback in-memory. `npm test -- cache` verde.
 
-- [ ] **0.5** Schemas Zod base de respuesta.
+- [x] **0.5** Schemas Zod base de respuesta.
   - **AC:** módulo `src/lib/schemas.ts` define `BaseToolResponse` con campos `score: number`, `reasons: Reason[]`, `sources: Source[]` (cada Source con `name`, `url`, `fetchedAt`, `dataAvailable: boolean`), `disclaimer?: string`. Cada tool extiende este shape.
   - **Verify:** `npm test -- schemas` valida que un response sin `sources` falla parse, que `fetchedAt` debe ser ISO 8601, que `score` está acotado.
 
-- [ ] **0.6** Test harness con fixtures congelados.
+- [x] **0.6** Test harness con fixtures congelados.
   - **AC:** Vitest configurado en `mcp-server/vitest.config.ts`. Convención: cada cliente de fuente externa tiene `__fixtures__/<source>-<scenario>.json` (snapshot de respuesta real, anonimizado, congelado). Helper `loadFixture(name)` carga desde fixtures.
   - **Verify:** `npm test` arranca y pasa con un test trivial inicial. Lint excluye `__fixtures__/` de cobertura.
 
-- [ ] **0.7** Tool registry en el server MCP.
+- [x] **0.7** Tool registry en el server MCP.
   - **AC:** módulo `src/server/registry.ts` expone `registerTool(server, tool)` que mete la tool en el MCP server (Streamable HTTP) con su schema Zod. `tools/list` y `tools/call` funcionan.
   - **Verify:** test integración: registrar una tool dummy `echo`, llamar `tools/list` por el endpoint MCP local, verificar que aparece. `tools/call name=echo` retorna lo enviado.
 
