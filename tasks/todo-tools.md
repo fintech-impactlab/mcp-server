@@ -44,19 +44,19 @@ Sin esto, cada tool reinventa estructura, errores, cache y logging. Atómico per
 
 ## Slice 1 — Motor de scoring
 
-- [ ] **1.1** Tabla de reglas en código.
+- [x] **1.1** Tabla de reglas en código.
   - **AC:** `src/scoring/rules.ts` exporta arreglo tipado `Rule[]` con campos `id`, `category` (`blacklist|domain|entity|business_model|...`), `weight: number`, `predicate: (facts) => boolean`, `reason: string`, `fundamento: string` (cita o argumento corto). Inicialmente al menos 12 reglas que cubran señales del README (dominio <30d, SSL Let's Encrypt, blacklist hit, RPSF autorizada, RPSF en revisión, RPSF no registrada, FinteChile miembro, etc.).
   - **Verify:** todas las reglas tienen `id` único, `weight` entre -50 y +50, `fundamento` no vacío.
 
-- [ ] **1.2** Función `score(facts) → { score, reasons[] }`.
+- [x] **1.2** Función `score(facts) → { score, reasons[] }`.
   - **AC:** `src/scoring/engine.ts`. Recibe `Facts` (unión de hechos crudos), itera reglas, suma weights de las que aplican, retorna `{ score, reasons: [{ id, weight, message, fundamento }] }`. Determinístico, sin LLM, sin random, sin fecha (excepto facts dependientes del input).
   - **Verify:** llamada con mismo input retorna exactamente el mismo output 1000 veces (`npm test -- engine.deterministic`).
 
-- [ ] **1.3** Test por regla — caso afirmativo y negativo.
+- [x] **1.3** Test por regla — caso afirmativo y negativo.
   - **AC:** archivo `src/scoring/__tests__/rules.test.ts`: cada regla tiene un `it()` con caso que la dispara (verifica weight aplicado) y un `it()` con caso que no la dispara (verifica weight no aplicado). Cobertura 100% de `rules.ts`.
   - **Verify:** `npm test -- rules.test --coverage` reporta 100% en `rules.ts`. CLAUDE.md lo exige.
 
-- [ ] **1.4** `SCORING.md` en raíz del repo.
+- [x] **1.4** `SCORING.md` en raíz del repo.
   - **AC:** documento con tabla `id | category | weight | reason | fundamento`. Cumple promesa del README ("Las reglas específicas se documentan en SCORING.md (pendiente)"). Generado idealmente desde `rules.ts` con script `npm run scoring:docs`.
   - **Verify:** `test -f SCORING.md` y `grep -c "^| " SCORING.md` ≥ número de reglas + 1 (header).
 

@@ -15,6 +15,7 @@
     "dev": "tsc --watch",
     "dev:server": "node --watch dist/index.js",
     "dev:gen-key": "node scripts/dev-gen-key.mjs",
+    "scoring:docs": "node scripts/scoring-docs.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-reporter=spec \"dist/**/*.test.js\""
   },
