@@ -43,115 +43,110 @@ async function main(): Promise<void> {
   }
   logger.event("server.auth_keys_loaded", {});
 
-  const mcp = new McpServer({
-    name: "fintech-mcp",
-    version: "0.1.0",
-  });
-
   const cache = bootstrapCache();
 
-  const ratesTool = createGetMarketReferenceRatesTool({
-    cache,
-    bceConfig: {
-      baseUrl: "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx",
-      credentials: {
-        user: process.env.BCE_USER ?? "",
-        pass: process.env.BCE_PASS ?? "",
+  type Deps = { cache: ReturnType<typeof bootstrapCache>; storage: ReturnType<typeof createStorage> };
+
+  function buildMcpServer(deps: Deps): McpServer {
+    const mcp = new McpServer({ name: "fintech-mcp", version: "0.1.0" });
+
+    const ratesTool = createGetMarketReferenceRatesTool({
+      cache: deps.cache,
+      bceConfig: {
+        baseUrl: "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx",
+        credentials: {
+          user: process.env.BCE_USER ?? "",
+          pass: process.env.BCE_PASS ?? "",
+        },
       },
-    },
-  });
-  registerTool(mcp, ratesTool);
-  logger.event("server.tool_registered", { toolName: "get_market_reference_rates" });
+    });
+    registerTool(mcp, ratesTool);
 
-  registerTool(
-    mcp,
-    createExplainLawSimpleTool({
-      cache,
-      bcnConfig: {
-        baseUrl: "https://www.bcn.cl/api-leyfacil/servicio/ObtenerGuiaPublicadaHTML",
-      },
-    }),
-  );
-  logger.event("server.tool_registered", { toolName: "explain_law_simple" });
+    registerTool(
+      mcp,
+      createExplainLawSimpleTool({
+        cache: deps.cache,
+        bcnConfig: {
+          baseUrl: "https://www.bcn.cl/api-leyfacil/servicio/ObtenerGuiaPublicadaHTML",
+        },
+      }),
+    );
 
-  const blacklistTool = createCheckBlacklistTool({
-    cache,
-    storage,
-    ...(process.env.PHISHTANK_API_KEY
-      ? { phishtankConfig: { apiKey: process.env.PHISHTANK_API_KEY } }
-      : {}),
-    urlhausConfig: {},
-  });
-  registerTool(mcp, blacklistTool);
-  logger.event("server.tool_registered", { toolName: "check_blacklist" });
+    const blacklistTool = createCheckBlacklistTool({
+      cache: deps.cache,
+      storage: deps.storage,
+      ...(process.env.PHISHTANK_API_KEY
+        ? { phishtankConfig: { apiKey: process.env.PHISHTANK_API_KEY } }
+        : {}),
+      urlhausConfig: {},
+    });
+    registerTool(mcp, blacklistTool);
 
-  const whitelistTool = createCheckWhitelistTool({
-    cache,
-    storage,
-    fintechileConfig: {},
-  });
-  registerTool(mcp, whitelistTool);
-  logger.event("server.tool_registered", { toolName: "check_whitelist" });
+    const whitelistTool = createCheckWhitelistTool({
+      cache: deps.cache,
+      storage: deps.storage,
+      fintechileConfig: {},
+    });
+    registerTool(mcp, whitelistTool);
 
-  const analyzeDomainTool = createAnalyzeDomainTool();
-  registerTool(mcp, analyzeDomainTool);
-  logger.event("server.tool_registered", { toolName: "analyze_domain" });
+    const analyzeDomainTool = createAnalyzeDomainTool();
+    registerTool(mcp, analyzeDomainTool);
 
-  const checkDnsOwnershipTool = createCheckDnsOwnershipTool();
-  registerTool(mcp, checkDnsOwnershipTool);
-  logger.event("server.tool_registered", { toolName: "check_dns_ownership" });
+    const checkDnsOwnershipTool = createCheckDnsOwnershipTool();
+    registerTool(mcp, checkDnsOwnershipTool);
 
-  const verifyChileanEntityTool = createVerifyChileanEntityTool();
-  registerTool(mcp, verifyChileanEntityTool);
-  logger.event("server.tool_registered", { toolName: "verify_chilean_entity" });
+    const verifyChileanEntityTool = createVerifyChileanEntityTool();
+    registerTool(mcp, verifyChileanEntityTool);
 
-  const regulatorStatusTool = createCheckRegulatorStatusTool({
-    cache,
-    storage,
-    fintechileConfig: {},
-  });
-  registerTool(mcp, regulatorStatusTool);
-  logger.event("server.tool_registered", { toolName: "check_regulator_status" });
+    const regulatorStatusTool = createCheckRegulatorStatusTool({
+      cache: deps.cache,
+      storage: deps.storage,
+      fintechileConfig: {},
+    });
+    registerTool(mcp, regulatorStatusTool);
 
-  const businessModelTool = createAnalyzeBusinessModelTool({
-    getRates: async () => {
-      try {
-        const r = await ratesTool.handler({});
-        if (r.rates?.tasaMaximaConvencional !== undefined) {
-          return { tasaMaximaConvencionalPct: r.rates.tasaMaximaConvencional };
+    const businessModelTool = createAnalyzeBusinessModelTool({
+      getRates: async () => {
+        try {
+          const r = await ratesTool.handler({});
+          if (r.rates?.tasaMaximaConvencional !== undefined) {
+            return { tasaMaximaConvencionalPct: r.rates.tasaMaximaConvencional };
+          }
+          return null;
+        } catch {
+          return null;
         }
-        return null;
-      } catch {
-        return null;
-      }
-    },
-  });
-  registerTool(mcp, businessModelTool);
-  logger.event("server.tool_registered", { toolName: "analyze_business_model" });
+      },
+    });
+    registerTool(mcp, businessModelTool);
 
-  const applicableRegulationTool = createGetApplicableRegulationTool();
-  registerTool(mcp, applicableRegulationTool);
-  logger.event("server.tool_registered", { toolName: "get_applicable_regulation" });
+    const applicableRegulationTool = createGetApplicableRegulationTool();
+    registerTool(mcp, applicableRegulationTool);
 
-  const complaintChannelsTool = createGetOfficialComplaintChannelsTool();
-  registerTool(mcp, complaintChannelsTool);
-  logger.event("server.tool_registered", { toolName: "get_official_complaint_channels" });
+    const complaintChannelsTool = createGetOfficialComplaintChannelsTool();
+    registerTool(mcp, complaintChannelsTool);
 
-  registerTool(
-    mcp,
-    createFullEvaluationTool({
-      checkBlacklist: (input) => blacklistTool.handler({ input }),
-      checkWhitelist: (input) => whitelistTool.handler({ input }),
-      analyzeDomain: (url) => analyzeDomainTool.handler({ url }),
-      checkDnsOwnership: (domain) => checkDnsOwnershipTool.handler({ domain }),
-      verifyChileanEntity: (rut) => verifyChileanEntityTool.handler({ rut }),
-      checkRegulatorStatus: (rutOrName) => regulatorStatusTool.handler({ rutOrName }),
-      analyzeBusinessModel: (text) => businessModelTool.handler({ text }),
-      getApplicableRegulation: (params) => applicableRegulationTool.handler(params),
-      getOfficialComplaintChannels: (params) => complaintChannelsTool.handler(params),
-    }),
-  );
-  logger.event("server.tool_registered", { toolName: "full_evaluation" });
+    registerTool(
+      mcp,
+      createFullEvaluationTool({
+        checkBlacklist: (input) => blacklistTool.handler({ input }),
+        checkWhitelist: (input) => whitelistTool.handler({ input }),
+        analyzeDomain: (url) => analyzeDomainTool.handler({ url }),
+        checkDnsOwnership: (domain) => checkDnsOwnershipTool.handler({ domain }),
+        verifyChileanEntity: (rut) => verifyChileanEntityTool.handler({ rut }),
+        checkRegulatorStatus: (rutOrName) => regulatorStatusTool.handler({ rutOrName }),
+        analyzeBusinessModel: (text) => businessModelTool.handler({ text }),
+        getApplicableRegulation: (params) => applicableRegulationTool.handler(params),
+        getOfficialComplaintChannels: (params) => complaintChannelsTool.handler(params),
+      }),
+    );
+
+    return mcp;
+  }
+
+  // Warmup: validar que el factory no lanza antes de aceptar tráfico.
+  buildMcpServer({ cache, storage });
+  logger.event("server.tools_ready", { count: 12 });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -161,12 +156,14 @@ async function main(): Promise<void> {
   });
 
   // Stateful sessions: el SDK MCP requiere que el state del initialize persista
-  // entre POSTs subsiguientes (tools/list, tools/call). Mantenemos un Map de
-  // transports por sessionId. La Container App corre con maxReplicas: 1 para
-  // que los sessionIds sean siempre stickies (Container Apps consumption no
-  // soporta sticky sessions a nivel de ingress). Si se sube maxReplicas, mover
-  // este Map a un store compartido (Redis / blob).
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  // entre POSTs subsiguientes (tools/list, tools/call). Mantenemos una sesión
+  // (transport + McpServer dedicado) por sessionId, porque el Protocol del SDK
+  // solo admite un transport por instancia de McpServer. La Container App corre
+  // con maxReplicas: 1 para que los sessionIds sean stickies (Container Apps
+  // consumption no soporta sticky sessions a nivel de ingress). Si se sube
+  // maxReplicas, mover este Map a un store compartido (Redis / blob).
+  type Session = { transport: StreamableHTTPServerTransport; mcp: McpServer };
+  const sessions = new Map<string, Session>();
   const SESSION_TTL_MS = 30 * 60 * 1000; // 30 min de inactividad
   const sessionLastSeen = new Map<string, number>();
 
@@ -174,11 +171,11 @@ async function main(): Promise<void> {
     const cutoff = Date.now() - SESSION_TTL_MS;
     for (const [sid, lastSeen] of sessionLastSeen) {
       if (lastSeen < cutoff) {
-        const t = transports.get(sid);
-        if (t) {
-          void t.close();
+        const s = sessions.get(sid);
+        if (s) {
+          void s.transport.close();
         }
-        transports.delete(sid);
+        sessions.delete(sid);
         sessionLastSeen.delete(sid);
         logger.event("mcp.session_evicted", { sessionId: sid, reason: "ttl" });
       }
@@ -188,28 +185,30 @@ async function main(): Promise<void> {
   async function handleMcpRequest(req: Request, res: Response): Promise<void> {
     try {
       const sessionIdHeader = req.header("mcp-session-id");
-      let transport = sessionIdHeader ? transports.get(sessionIdHeader) : undefined;
+      let session = sessionIdHeader ? sessions.get(sessionIdHeader) : undefined;
 
-      if (!transport) {
-        transport = new StreamableHTTPServerTransport({
+      if (!session) {
+        const mcp = buildMcpServer({ cache, storage });
+        const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid: string) => {
-            transports.set(sid, transport!);
+            sessions.set(sid, { transport, mcp });
             sessionLastSeen.set(sid, Date.now());
             logger.event("mcp.session_opened", { sessionId: sid });
           },
           onsessionclosed: (sid: string) => {
-            transports.delete(sid);
+            sessions.delete(sid);
             sessionLastSeen.delete(sid);
             logger.event("mcp.session_closed", { sessionId: sid });
           },
         });
         await mcp.connect(transport);
+        session = { transport, mcp };
       } else {
         sessionLastSeen.set(sessionIdHeader!, Date.now());
       }
 
-      await transport.handleRequest(req, res, req.body);
+      await session.transport.handleRequest(req, res, req.body);
     } catch (err) {
       logger.event(
         "mcp.request_failed",
