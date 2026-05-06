@@ -14,8 +14,9 @@
 **Outcome:**
 - Endpoint MCP sobre Streamable HTTP en `ca-mcp-<env>` (ingress interno).
 - Cada tool retorna **hechos crudos + score parcial determinístico + razones**, nunca opinión.
-- **Determinismo en scoring**: el motor (`scoring/rules.ts`, `scoring/engine.ts`) es 100 % auditable, sin LLM, sin random.
-- **Orquestación con LLM permitida**: la capa orquestadora (`full_evaluation` y/o un servicio upstream) puede llamar a la API de Claude para clasificar inputs ambiguos (URLs cortas/incompletas, RUTs sin formato, nombres de empresa) y decidir secuencia de tools. El LLM nunca calcula `score` ni `verdict` — esos siguen viniendo del motor determinístico. Prompt y modelo versionados en código; toda llamada emite trazabilidad (`source: claude-api`, modelo, tokens); fallback determinístico obligatorio.
+- **Determinismo en scoring**: el motor (`scoring/rules.ts`, `scoring/engine.ts`, `scoring/levels.ts`) es 100 % auditable, sin LLM, sin random.
+- **Dos perfiles de scoring**: cada regla declara `appliesToNonCmf`. El orquestador `full_evaluation` clasifica el sitio como CMF (debe estar regulada) o No-CMF (no requiere regulación financiera) según `tipoEntidad`. El score consolidado se calcula bajo el perfil correspondiente y se mapea a un nivel 1-5 (`Crítico | Riesgoso | Neutro | Confiable | Muy confiable`) con escalas independientes (`SCORING.md § Niveles`). El campo `verdict` legacy de 3 estados se deriva del nivel para retro-compat.
+- **Orquestación con LLM permitida**: la capa orquestadora (`full_evaluation` y/o un servicio upstream) puede llamar a la API de Claude para clasificar inputs ambiguos (URLs cortas/incompletas, RUTs sin formato, nombres de empresa) y decidir secuencia de tools. El LLM nunca calcula `score`, `nivel` ni `verdict` — esos siguen viniendo del motor determinístico. Prompt y modelo versionados en código; toda llamada emite trazabilidad (`source: claude-api`, modelo, tokens); fallback determinístico obligatorio.
 
 **Non-goals** (resumen — ver sección "Lo que el MCP NO hace" del README para detalle):
 - No genera borradores de denuncia.
@@ -105,6 +106,22 @@ const BaseToolResponse = z.object({
 
 Cada tool extiende este shape con campos específicos (ej: `inBlacklist`, `domainAge`, `rates`, etc.).
 
+**`full_evaluation` extiende además con perfil + nivel** (definidos en [`tools/full_evaluation/schema.ts`](mcp-server/src/tools/full_evaluation/schema.ts)):
+
+```typescript
+{
+  totalScore: number;            // ya ajustado al perfil aplicado
+  verdict: "alto_riesgo" | "riesgo_medio" | "sin_senales_negativas"; // legacy, derivado de `nivel`
+  requiereCMF: boolean;          // true si la entidad debería estar regulada por la CMF
+  escala: "cmf" | "no_cmf";
+  nivel: 1 | 2 | 3 | 4 | 5;
+  etiqueta: "Crítico" | "Riesgoso" | "Neutro" | "Confiable" | "Muy confiable";
+  // ...resto del shape
+}
+```
+
+Las reglas con `appliesToNonCmf=false` se descuentan del `totalScore` cuando `escala === "no_cmf"`. Las `reasons` originales siguen visibles para trazabilidad.
+
 **Catálogo legal único** ([`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts), tipos en [`legal-types.ts`](mcp-server/src/lib/legal-types.ts)). Cada entrada tiene `id`, `kind`, `titulo`, `autoridad`, `vigenciaDesde`, `vigenciaHasta?`, `urlOficial?`, `localPath?` y `citas[]`. Cada `Cita` lleva `articulo` (legible), `texto` verbatim y `ubicacion: { localPath, lineaInicio, lineaFin }`. Un test de integridad valida que cada `cita.texto` aparece literal en su `localPath` — sin LLM en el path de citación, todo el texto se ancla a archivo versionado en [`data/normativas/`](data/normativas/).
 
 **Output del orquestador `full_evaluation`** agrega un campo top-level `legalReferences: ResolvedLegalReference[]`. Cada entry resuelve un ID del catálogo y agrega `citasInvocadas[]` (subset de citas filtrado por los `articulo` que aparecieron en `Source.articulo` durante esa corrida). La resolución es lookup puro y determinístico — mismo input → mismo `legalReferences[]` byte-exact (validado en `citations-determinism.test.ts`, 1000 invocaciones).
@@ -135,6 +152,7 @@ Cómo otros componentes del CAE deben consumir este MCP. Documentado para que cu
 - **URL canónica interna:** `http://ca-mcp-<env>` (FQDN corto, resuelto por DNS interno del CAE). Los clientes la reciben vía env var `MCP_URL`. Nunca hardcodear el FQDN largo `*.azurecontainerapps.io`.
 - **Health probe desde cliente:** `fetch(${MCP_URL}/health, { cache: "no-store", signal: AbortSignal.timeout(2000) })`. Timeout 2s. Convención adoptada por `ca-web` (ver `web/README.md`).
 - **Resiliencia del lado consumer:** si el MCP cae (timeout, 5xx, DNS), el cliente **no debe propagar 5xx** a su propio usuario. Renderiza estado degradado (mensaje de "MCP no disponible") con HTTP 200. El MCP es dependencia, no SPOF visible.
+- **Renderizado del resultado:** clientes nuevos deben renderizar `nivel` (1-5) + `etiqueta` como semáforo de 5 estados; `verdict` (3 estados) sigue disponible para clientes legacy y se deriva del nivel (`nivel ≤ 2` → `alto_riesgo`, `nivel = 3` → `riesgo_medio`, `nivel ≥ 4` → `sin_senales_negativas`). El campo `escala` (`cmf` | `no_cmf`) indica qué umbral de niveles se aplicó y debe mostrarse al usuario para que entienda el contexto del resultado.
 - **Identidad para llamadas autenticadas:** dentro del CAE no hay autenticación de aplicación entre containers (red privada). Si en el futuro se añade autenticación entre componentes, será vía managed identity + token de Entra ID.
 
 ### 3.6 Deployment & identity model
