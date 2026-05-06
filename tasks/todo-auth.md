@@ -9,7 +9,7 @@
 
 Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + KV mockeado.
 
-- [ ] **A1.1** Definir formato de keys + estructura del secret KV.
+- [x] **A1.1** Definir formato de keys + estructura del secret KV.
   - **AC:** decisión documentada en `mcp-server/CONVENTIONS.md` (a crear): keys son strings ≥32 bytes random URL-safe (`crypto.randomBytes(32).toString('base64url')`). Secret `mcp-api-keys` en KV es JSON con shape:
     ```json
     [
@@ -19,27 +19,27 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
     ```
   - **Verify:** `mcp-server/CONVENTIONS.md` tiene la sección "Authentication" con el shape JSON y la regla "plaintext nunca persiste".
 
-- [ ] **A1.2** Helper `hashKey(plain)` + `validateKey(plain, knownHashes[])`.
+- [x] **A1.2** Helper `hashKey(plain)` + `validateKey(plain, knownHashes[])`.
   - **AC:** `mcp-server/src/server/auth/keys.ts`. `hashKey` retorna sha256 base64url. `validateKey` itera la lista y compara con `crypto.timingSafeEqual` sobre los buffers de los hashes. Retorna `{ valid: true, clientId, keyId } | { valid: false }`.
   - **Verify:** `pnpm test` con tests del módulo: key válida → match, key inválida → no-match, key revocada (`revokedAt != null`) → no-match, plaintext con padding diferente al original → no-match. Test específico de `timingSafeEqual` confirma que se llama (mock).
 
-- [ ] **A1.3** Key store con cache 60s desde KV.
+- [x] **A1.3** Key store con cache 60s desde KV.
   - **AC:** `mcp-server/src/server/auth/key-store.ts`. Clase `KeyStore` con método `getActiveKeys(): Promise<KeyEntry[]>` que cachea 60s en memoria. Carga vía `@azure/keyvault-secrets` + `DefaultAzureCredential` (UAI `uai-mcp-${env}` en runtime, `az login` en dev). En fallo de KV, retorna último valor conocido y loggea warning. Si nunca cargó y KV cae, lanza `AuthBootstrapError` que abortará el boot.
   - **Verify:** test con mock de `SecretClient`: primera carga llama KV; segundas N llamadas en <60s no llaman KV; llamada >60s refresca; KV failure tras carga exitosa → último valor; KV failure sin carga previa → throw.
 
-- [ ] **A1.4** Middleware Express `requireBearer`.
+- [x] **A1.4** Middleware Express `requireBearer`.
   - **AC:** `mcp-server/src/server/middleware/auth.ts`. Lee `Authorization: Bearer <plain>`. Sin header → 401 con body JSON-RPC `{ error: { code: -32001, message: "Authentication required" }, id: null }`. Header presente pero `validateKey` falla → 403 con `{ error: { code: -32002, message: "Invalid or revoked key" }, id: null }`. Pone `req.auth = { clientId, keyId }` cuando es válido. Agregado al pipeline solo en `POST /mcp`. **No** se aplica a `/health` ni `GET /mcp` (este último ya retorna 405 propio).
   - **Verify:** tests de integración con `supertest`: sin header → 401, header inválido → 403, header válido con key revocada → 403, header válido + `/mcp` POST → handler MCP corre normal, `/health` GET → 200 sin importar auth.
 
-- [ ] **A1.5** Logging hasheado de auth events.
+- [x] **A1.5** Logging hasheado de auth events.
   - **AC:** ningún log incluye el plaintext del header. En éxito **no se emite log dedicado** (la auth exitosa queda implícita en el log `tool.call` con `clientId`). En fallo, log JSON `{ event: "auth.failure", reason: "no_header" | "invalid_key" | "revoked", inputHash, ip? }` donde `inputHash = hashInput(authHeader ?? "")`. Emitido vía `logger.event` (helper de Slice 0.3 de tools, o adelantar acá si es necesario).
   - **Verify:** test que captura todos los `console.*` del flujo auth y verifica con `expect(stdout).not.toContain('Bearer ')` (con espacio para evitar falsos positivos del literal de error). Test específico verifica que el JSON de `auth.failure` no incluye campo `key`, `bearer` ni el header completo.
 
-- [ ] **A1.6** Wirear el middleware en `src/index.ts`.
+- [x] **A1.6** Wirear el middleware en `src/index.ts`.
   - **AC:** `mcp-server/src/index.ts` actualizado: instancia `KeyStore` al boot, espera primera carga (`await keyStore.warm()`) antes de `app.listen`, registra `requireBearer(keyStore)` en `app.post('/mcp', requireBearer(keyStore), async (req, res) => ...)`. Si la primera carga falla, log error y `process.exit(1)`.
   - **Verify:** integración local con KV emulado (variable de entorno `MCP_API_KEYS_LOCAL_JSON` con el JSON, modo dev) o KV real. `pnpm build && pnpm start` levanta server. `curl localhost:3001/health` → 200. `curl -X POST localhost:3001/mcp` → 401. `curl -X POST localhost:3001/mcp -H 'Authorization: Bearer <key>'` → 200.
 
-- [ ] **A1.7** Modo dev local sin KV.
+- [x] **A1.7** Modo dev local sin KV.
   - **AC:** si `process.env.MCP_API_KEYS_LOCAL_JSON` está seteada, `KeyStore` la usa en lugar de hacer fetch a KV. Documentar en `mcp-server/README.md` la sección "Desarrollo local" cómo generar y setear esa env var con un script `pnpm dev:gen-key`.
   - **Verify:** `pnpm dev:gen-key` imprime: `MCP_API_KEYS_LOCAL_JSON='[{"clientId":"dev","keyId":"local","keyHash":"...","createdAt":"...","revokedAt":null}]'` y la plaintext correspondiente para usar en `Authorization: Bearer ...`.
 
