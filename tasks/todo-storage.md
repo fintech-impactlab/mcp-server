@@ -45,9 +45,9 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
   - **AC:** [README.md](../README.md) sección "Datos y referencias locales" tiene un bloque "Sincronización al File Share" con: comando del script, qué se sube, cómo agregar nuevas normativas, advertencia de que el File Share es la fuente de verdad en runtime.
   - **Verify:** sección renderiza ok en GitHub preview; los comandos copiados se ejecutan sin modificación.
 
-- [ ] **S2.3** Verificar contenido desde dentro del container.
+- [x] **S2.3** Verificar contenido desde dentro del container.
   - **AC:** estructura completa visible en `/app/data` desde el MCP server.
-  - **Verify (parcial):** Cross-check desde Storage API (S2.1 verify) confirma 28 archivos en el layout esperado. Mount RW probado en S1.6. **Pendiente interactivo:** `az containerapp update --min-replicas 1`, luego `az containerapp exec -n ca-mcp-fintech-dev -g oarocha-fintech --command 'find /app/data -type f'` desde tty real (no funciona via harness automatizado por requerir cbreak), luego restaurar min-replicas=0. Esperado: 28 paths.
+  - **Verify (ejecutado 2026-05-06 en revision `ca-mcp-fintech-dev--0000011`):** `find /app/data -type f` lista los 28 archivos esperados — 8 en `snapshots/cmf/` (CSV+XLSX), 12 en `normativas/` raíz (.md+.pdf), 8 en `normativas/sii/` (.md+.pdf). Layout consistente con la jerarquía objetivo del plan.
 
 ---
 
