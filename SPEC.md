@@ -39,7 +39,8 @@ Confirmado en `mcp-server/package.json` (bootstrap actual) y planeado para Clust
 | HTTP server | `express` 4.21.2 | ✅ instalado | Middleware ergonómico (body limit, futuras CORS/rate-limit). MCP SDK monta sobre el transport HTTP. |
 | HTTP client (outbound) | `undici` | ⏳ a sumar en Slice 0 | Timeouts, abort signals y retries más controlables que fetch nativo. Pool de conexiones. |
 | Validación | `zod` v3+ | ⏳ a sumar en Slice 0 | Validar todo input externo en bordes (CLAUDE.md). |
-| XLSX parser | `exceljs` | ⏳ a sumar en Slice 4 | Mantenimiento activo, types modernos, sin CVEs abiertas. Solo se lee XLSX (CMF Alertas). |
+| XLSX parser | `exceljs` | ⏳ a sumar en Slice 4 (solo job `refresh-cmf`) | El runtime de tools **no** parsea XLSX: lee CSV ya normalizado desde el blob `cache-cmf`. Solo el job programado `refresh-cmf` baja el XLSX desde CMF Alertas y lo convierte. Mantenimiento activo, types modernos, sin CVEs abiertas. |
+| CSV parser (runtime) | built-in (Node `string.split` + Zod) | ⏳ a sumar en Slice 4 | Los CSVs de CMF tienen shape simple (encabezados + filas planas). Sin dep extra a menos que aparezca un campo con escape complejo; entonces evaluar `csv-parse`. |
 | HTML scraping | `cheerio` | ⏳ a sumar en Slice 4-8 | Para SII, dequienes.cl, FinteChile, CSIRT. Liviano, sin browser headless. |
 | WHOIS / RDAP | `whois-json` + cliente RDAP custom | ⏳ a sumar en Slice 6-7 | NIC Chile expone RDAP. Internacional vía WHOIS. |
 | Test framework | Node test runner nativo (`node --test --test-reporter=spec`) | ✅ instalado | Cero dependencias extra, ESM nativo, watch built-in en Node 22. Ver Open question 4 si cobertura no alcanza. |
@@ -140,6 +141,29 @@ El MCP corre como Container App `ca-mcp-<env>` con **User-Assigned Identity** de
 - Código del MCP usa `DefaultAzureCredential` de `@azure/identity`. En Container Apps resuelve a la UAI inyectada; en dev local resuelve al `az login` del developer.
 - Cualquier nuevo recurso Azure consumido por el MCP requiere asignar el rol mínimo a `uai-mcp-<env>` en Bicep (`infra/`). No reusar permisos heredados.
 - **No usar system-assigned identity.** UAI permite controlar el ciclo de vida del principal independiente del Container App (re-deploys no rotan la identidad).
+
+### 3.7 Data sources & local snapshots (`data/`)
+
+El repo tiene una carpeta `data/` en la raíz (fuera de `mcp-server/`) que documenta el README en su sección ["Datos y referencias locales"](README.md#datos-y-referencias-locales-data). Vive aparte del server para que cualquier integrante del lab pueda revisar/refrescar fuentes sin tocar el código.
+
+| Carpeta / archivo | Contenido | Rol |
+|---|---|---|
+| `data/*.csv` | Snapshots vigentes de los 4 listados de CMF Alertas Ciudadanas (Plataformas / Apps Crédito / Créditos Fraudulentos / Otras), convertidos desde XLSX. | Snapshot versionado + fixture de referencia. **No se lee en runtime.** |
+| `data/normativas/*.{pdf,md}` | NCG 502/503/504/514, Manual SIF, Circ 2.345 (PDF original + texto plano `pdftotext -layout`). | Referencia para el equipo + posibles citas en `cmf-norms.ts`. **No se lee en runtime.** |
+| `data/APIS.md` | Documentación técnica consolidada de las 5 APIs REST (BCE BDE, BCN Ley Fácil, PhishTank, GSB v4, URLhaus): endpoints, auth, parámetros, ejemplos request/response, rate limits, mapping de credenciales a Key Vault, política de timeouts/retries/cache. | Source-of-truth para implementar `tools/<name>/client.ts`. Cualquier divergencia entre código y `data/APIS.md` es un bug en uno de los dos. |
+
+**Decisión: `data/` es repo-side, no runtime.** Tres caminos se evaluaron:
+
+- (A) Cargar CSVs al blob al deploy y leer solo del blob. _Descartada:_ duplica la lógica de seed.
+- (B) `COPY data/` en el Dockerfile y leer con path relativo. _Descartada:_ acopla Docker build a archivos fuera de `mcp-server/`, complica imagen y CI.
+- **(C) elegida:** `data/` vive solo en el repo. El **primer deploy ejecuta `refresh-cmf` como bootstrap** para poblar `cache-cmf` desde la fuente live (XLSX de CMF). Los CSVs de `data/` se usan en tests (referenciados por `__fixtures__/` o leídos con path relativo desde tests fuera del Dockerfile) y como referencia para el equipo. El Dockerfile **no** los copia.
+
+**Relación con `__fixtures__/`:**
+
+- `data/*.csv` = snapshot completo y vigente del listado real (todo lo que CMF expuso a la fecha de refresh). Refresca un humano + una herramienta.
+- `mcp-server/src/tools/<name>/__fixtures__/` = subconjuntos curados o casos edge (un fraude conocido, una fila malformada, un listado vacío, etc.) usados por tests específicos. Mantenidos a mano.
+
+**Refresh operacional:** `pnpm refresh:cmf` (Slice 4.2) se ejecuta como Container Apps Job programado en producción y, además, se invoca **manualmente** al primer deploy de un nuevo entorno para inicializar el blob `cache-cmf`. Los CSVs en `data/` se actualizan vía PR cuando el equipo decide bumpar el snapshot de referencia (no automáticamente).
 
 ---
 
@@ -268,7 +292,8 @@ CI ejecuta: `lint`, `typecheck`, `test:coverage`, `build` antes del docker build
 - Mocks: `node:test` provee `mock` (`mock.fn`, `mock.method`, `mock.timers`). Suficiente para clientes externos.
 - Cobertura: `node --experimental-test-coverage` (V8-based, output `lcov` para CI).
 - Convención: tests viven junto al código (`<file>.test.ts`), excepto tests de scoring que viven en `src/scoring/__tests__/`.
-- Fixtures en `__fixtures__/` por tool. Snapshots reales anonimizados, congelados, commitados. Cargados con `fs.readFileSync` desde `import.meta.dirname`.
+- **Fixtures por tool** en `__fixtures__/`: subconjuntos curados / casos edge (fraude conocido, fila malformada, listado vacío). Cargados con `fs.readFileSync` desde `import.meta.dirname`.
+- **Snapshots versionados de fuente** en `<repo>/data/` (CSVs CMF, PDFs/`.md` normativas). Tests pueden referenciarlos con path relativo `../../../data/<file>` cuando necesitan el listado completo y vigente; el repo-root layout lo permite porque tests no corren en Docker. Ver § 3.7 para la separación entre `data/` y `__fixtures__/`.
 
 ### 7.2 Cobertura obligatoria
 
@@ -330,6 +355,7 @@ Cada tool nueva debe incluir:
 - Cambiar el shape de `BaseToolResponse` (afecta a las 12 tools).
 - Modificar el shape del payload de `tool.call` (rompe queries en Log Analytics y dashboards futuros).
 - Reusar API key entre dev y prod.
+- Cambiar el shape de `data/APIS.md` o el contenido de `data/*.csv` sin actualizar también el código de la tool que las consume (y viceversa). Son contrato co-versionado.
 
 ### Never do
 
