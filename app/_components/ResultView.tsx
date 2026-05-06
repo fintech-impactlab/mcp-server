@@ -48,7 +48,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 function AnalyzeDomainExtras({ data }: { data: AnalyzeDomainData }) {
   const items: Array<[string, React.ReactNode]> = [];
   if (data.domain) items.push(["Dominio", <span className="font-mono">{data.domain}</span>]);
-  if (data.domainAgeDays !== undefined) {
+  if (typeof data.domainAgeDays === "number") {
     const years = (data.domainAgeDays / 365).toFixed(1);
     items.push(["Edad", `${data.domainAgeDays.toLocaleString("es-CL")} días (~${years} años)`]);
   }
@@ -64,7 +64,7 @@ function AnalyzeDomainExtras({ data }: { data: AnalyzeDomainData }) {
     ]);
   }
   if (data.finalUrl) items.push(["URL final", <span className="font-mono break-all text-xs">{data.finalUrl}</span>]);
-  if (data.redirects && data.redirects.length > 0) {
+  if (Array.isArray(data.redirects) && data.redirects.length > 0) {
     items.push(["Redirecciones", `${data.redirects.length}`]);
   }
   if (items.length === 0) return null;
@@ -78,7 +78,7 @@ function AnalyzeDomainExtras({ data }: { data: AnalyzeDomainData }) {
 }
 
 function CheckBlacklistExtras({ data }: { data: CheckBlacklistData }) {
-  if (data.inBlacklist === undefined) return null;
+  if (data.inBlacklist == null) return null;
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-md bg-zinc-50 p-3 dark:bg-zinc-900">
       <div className="flex items-center gap-2 text-sm">
