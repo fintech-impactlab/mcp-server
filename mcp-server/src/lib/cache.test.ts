@@ -115,6 +115,46 @@ describe("createCache.getOrSet", () => {
     assert.equal(result, "first");
   });
 
+  it("invokes onStaleHit with the original cachedAt when serving stale", async () => {
+    let now = 1_000;
+    const cache = createCache({ store: createInMemoryStore(), now: () => now });
+    await cache.getOrSet("k", 60, async () => "first");
+    now = 1_000 + 60_001;
+    let staleObserved: number | null = null;
+    await cache.getOrSet(
+      "k",
+      60,
+      async () => {
+        throw new Error("source down");
+      },
+      {
+        staleOnError: true,
+        onStaleHit: (cachedAt) => {
+          staleObserved = cachedAt;
+        },
+      },
+    );
+    assert.equal(staleObserved, 1_000);
+  });
+
+  it("does not invoke onStaleHit when the cache is still fresh", async () => {
+    const cache = createCache({ store: createInMemoryStore(), now: () => 1_000 });
+    await cache.getOrSet("k", 60, async () => "first");
+    let called = 0;
+    await cache.getOrSet(
+      "k",
+      60,
+      async () => "second",
+      {
+        staleOnError: true,
+        onStaleHit: () => {
+          called += 1;
+        },
+      },
+    );
+    assert.equal(called, 0);
+  });
+
   it("treats malformed cached JSON as no-cache and refetches", async () => {
     const store: CacheStore = {
       async read(_key: string): Promise<string | null> {

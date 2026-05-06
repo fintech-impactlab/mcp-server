@@ -7,6 +7,8 @@ export interface CacheStore {
 
 export interface GetOrSetOptions {
   staleOnError?: boolean;
+  /** Callback invoked when a stale cached value is served because the fetcher threw. */
+  onStaleHit?: (cachedAt: number) => void;
 }
 
 export interface Cache {
@@ -63,6 +65,7 @@ export function createCache(opts: CreateCacheOptions): Cache {
         return fresh;
       } catch (err) {
         if (cached !== null && options?.staleOnError === true) {
+          options.onStaleHit?.(cached.fetchedAt);
           return cached.value;
         }
         throw err;

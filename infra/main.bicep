@@ -148,6 +148,10 @@ module mcpApp './modules/container-app.bicep' = {
         name: 'DATA_DIR'
         value: '/app/data'
       }
+      {
+        name: 'AZURE_STORAGE_ACCOUNT_NAME'
+        value: storageAccountName
+      }
     ]
     volumes: [
       {

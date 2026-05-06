@@ -3,9 +3,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 import { logger } from "./lib/logging.js";
+import { bootstrapCache } from "./server/bootstrap-cache.js";
 import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
+import { registerTool } from "./server/registry.js";
+import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 
@@ -27,6 +30,22 @@ async function main(): Promise<void> {
     name: "fintech-mcp",
     version: "0.1.0",
   });
+
+  const cache = bootstrapCache();
+  registerTool(
+    mcp,
+    createGetMarketReferenceRatesTool({
+      cache,
+      bceConfig: {
+        baseUrl: "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx",
+        credentials: {
+          user: process.env.BCE_USER ?? "",
+          pass: process.env.BCE_PASS ?? "",
+        },
+      },
+    }),
+  );
+  logger.event("server.tool_registered", { toolName: "get_market_reference_rates" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

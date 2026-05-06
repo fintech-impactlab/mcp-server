@@ -68,28 +68,28 @@ Sin esto, cada tool reinventa estructura, errores, cache y logging. Atómico per
 
 API REST oficial del Banco Central. Sin scraping, registro gratuito. Valida el patrón end-to-end con la fuente más simple.
 
-- [ ] **2.1** Cliente API BDE del BCE.
+- [x] **2.1** Cliente API BDE del BCE.
   - **AC:** `src/tools/get_market_reference_rates/client.ts`. Lee credenciales BCE (`BCE_USER`, `BCE_PASS`) desde KV vía `secretRef` en runtime, env var local en dev. Hace request a `https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx` con timeout 5s, reintento backoff exponencial 3x. Retorna respuesta validada con Zod (rechaza payload malformado con `BCEError`).
   - **Verify:** test con fixture `__fixtures__/bce-tpm-2025-04.json` parsea correctamente. Test de timeout simulado lanza `BCEError(retriable: true)`.
 
-- [ ] **2.2** Schemas Zod input + output.
+- [x] **2.2** Schemas Zod input + output.
   - **AC:** `<name>.schema.ts`. Input vacío (`z.object({})`). Output extiende `BaseToolResponse` con `rates: { tpm: number, tasaMaximaConvencional: number, tasaPromedioSistema: number, fechaDatos: string (ISO) }`.
   - **Verify:** `npm test -- schema` verde. Output con `tpm` negativo o `fechaDatos` no-ISO falla parse.
 
-- [ ] **2.3** Cache TTL 24h en Storage Blob.
+- [x] **2.3** Cache TTL 24h en Storage Blob.
   - **AC:** key `rates:bce:current`, TTL 86400s. Container `audit` (provisional, ver nota). Si la API BCE cae, retorna cache aunque expirado, con `dataAvailable: true` pero `staleSince: ...` en sources.
   - **Verify:** integración con Azurite: primera llamada hace fetch + escribe blob; segunda llamada en <24h lee blob, no llama API; tercera llamada >24h refetcha.
   - **Nota:** infra creó `cache-cmf`, `cache-rpsf`, `audit`. Si se requiere `cache-rates` separado, abrir issue para Slice 3.2 de infra; mientras tanto, prefijo de key `rates:` evita colisión en `audit`.
 
-- [ ] **2.4** Tool registrada en server MCP.
+- [x] **2.4** Tool registrada en server MCP.
   - **AC:** `src/tools/get_market_reference_rates/index.ts` expone `tool` con `name`, `description` (texto corto del README), `inputSchema`, `handler` que orquesta cache → cliente → scoring (ninguna regla aplica a esta tool, retorna score 0). Llamada en `src/server/index.ts` a `registerTool(server, getMarketReferenceRatesTool)`.
   - **Verify:** `tools/list` retorna la tool. `tools/call name=get_market_reference_rates arguments={}` retorna response válido.
 
-- [ ] **2.5** Tests con fixture y mocking de cliente.
+- [x] **2.5** Tests con fixture y mocking de cliente.
   - **AC:** test E2E del handler con cliente mockeado retorna shape esperado. Test de fallo: cliente lanza `BCEError`, handler retorna response con `dataAvailable: false` y `disclaimer` apropiado.
   - **Verify:** `npm test -- get_market_reference_rates` verde.
 
-- [ ] **2.6** Logs JSON estructurados a stdout.
+- [x] **2.6** Logs JSON estructurados a stdout.
   - **AC:** handler emite log `{ event: "tool.call", toolName, clientId, inputHash, durationMs, success, source: "bce" }` vía `logger.event` (helper de Slice 0.3). `inputHash` para esta tool es `hashInput("")` constante (input vacío).
   - **Verify:** local: `pnpm dev:server` y un `tools/call` produce una línea JSON en stdout con shape esperado. Post-deploy: `az monitor log-analytics query --workspace <log-fintech-${env}-id> --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.event == 'tool.call' and log.toolName == 'get_market_reference_rates' | take 5"` retorna filas.
 
