@@ -60,6 +60,166 @@ export type McpClientError = {
 export type McpResult<T> = { ok: true; data: T } | { ok: false; error: McpClientError };
 
 const TIMEOUT_PER_CALL_MS = 12_000;
+const RETRY_BACKOFF_MS = 250;
+const RETRY_MAX_ATTEMPTS = 1;
+
+const POOL_MAX_USES = 50;
+const POOL_MAX_AGE_MS = 5 * 60_000;
+
+type PoolEntry = {
+  client: Client;
+  transport: StreamableHTTPClientTransport;
+  createdAt: number;
+  uses: number;
+  alive: boolean;
+};
+
+// Pool persistente entre requests (singleton vía globalThis para sobrevivir a HMR
+// y a la inicialización por archivo en producción).
+const POOL_KEY = "__mcpPool__" as const;
+type PoolGlobal = typeof globalThis & { [POOL_KEY]?: PoolEntry[] };
+
+function getPool(): PoolEntry[] {
+  const g = globalThis as PoolGlobal;
+  if (!g[POOL_KEY]) g[POOL_KEY] = [];
+  return g[POOL_KEY]!;
+}
+
+function poolEnabled(): boolean {
+  if (process.env.MCP_POOL === "0") return false;
+  if (process.env.MCP_POOL === "1") return true;
+  return process.env.NODE_ENV === "production";
+}
+
+function isStale(entry: PoolEntry): boolean {
+  return (
+    !entry.alive ||
+    entry.uses >= POOL_MAX_USES ||
+    Date.now() - entry.createdAt > POOL_MAX_AGE_MS
+  );
+}
+
+async function disposeEntry(entry: PoolEntry): Promise<void> {
+  entry.alive = false;
+  await entry.client.close().catch((err: unknown) => {
+    logger.warn("web.mcp.close_failed", {
+      stage: "client",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+  await entry.transport.close().catch((err: unknown) => {
+    logger.warn("web.mcp.close_failed", {
+      stage: "transport",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
+async function createEntry(cfg: { endpoint: string; apiKey: string }): Promise<PoolEntry> {
+  const transport = new StreamableHTTPClientTransport(new URL(cfg.endpoint), {
+    requestInit: { headers: { Authorization: `Bearer ${cfg.apiKey}` } },
+  });
+  const client = new Client({ name: "fintech-web", version: "0.1.0" });
+  await client.connect(transport);
+  return { client, transport, createdAt: Date.now(), uses: 0, alive: true };
+}
+
+async function acquireSession(cfg: { endpoint: string; apiKey: string }): Promise<{
+  entry: PoolEntry;
+  pooled: boolean;
+}> {
+  if (!poolEnabled()) {
+    const entry = await createEntry(cfg);
+    return { entry, pooled: false };
+  }
+  const pool = getPool();
+  for (let i = pool.length - 1; i >= 0; i--) {
+    if (isStale(pool[i])) {
+      const stale = pool.splice(i, 1)[0];
+      void disposeEntry(stale);
+    }
+  }
+  if (pool.length > 0) {
+    return { entry: pool[0], pooled: true };
+  }
+  const entry = await createEntry(cfg);
+  pool.push(entry);
+  logger.event("web.mcp.pool_create", { size: pool.length });
+  return { entry, pooled: true };
+}
+
+async function releaseSession(
+  entry: PoolEntry,
+  pooled: boolean,
+  failed: boolean,
+): Promise<void> {
+  entry.uses += 1;
+  if (!pooled) {
+    await disposeEntry(entry);
+    return;
+  }
+  if (failed) {
+    entry.alive = false;
+  }
+  if (isStale(entry)) {
+    const pool = getPool();
+    const idx = pool.indexOf(entry);
+    if (idx >= 0) pool.splice(idx, 1);
+    await disposeEntry(entry);
+    logger.event("web.mcp.pool_evict", {
+      size: pool.length,
+      reason: !entry.alive ? "failed_or_dead" : entry.uses >= POOL_MAX_USES ? "max_uses" : "max_age",
+    });
+  }
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name: string }).name === "TimeoutError"
+  );
+}
+
+function isTransient(err: unknown): boolean {
+  if (isTimeoutError(err)) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|socket hang up|network/i.test(
+    msg,
+  );
+}
+
+async function callToolWithRetry(
+  client: Client,
+  call: { name: string; arguments: Record<string, unknown> },
+  inputHash: string,
+): Promise<unknown> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      logger.warn("web.mcp.retry", {
+        inputHash,
+        tool: call.name,
+        attempt,
+        previousError: lastErr instanceof Error ? lastErr.message : String(lastErr),
+      });
+      await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
+    }
+    const signal = AbortSignal.timeout(TIMEOUT_PER_CALL_MS);
+    try {
+      return await client.callTool(
+        { name: call.name, arguments: call.arguments },
+        undefined,
+        { signal },
+      );
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err)) throw err;
+    }
+  }
+  throw lastErr;
+}
 
 const TOOL_STAGES: Record<string, string> = {
   check_blacklist: "screening",
@@ -72,11 +232,13 @@ const TOOL_STAGES: Record<string, string> = {
   full_evaluation: "consolidado",
 };
 
-function getConfig(): { url: string; apiKey: string } | null {
+function getConfig(): { endpoint: string; apiKey: string } | null {
   const url = process.env.MCP_URL;
   const apiKey = process.env.MCP_API_KEY;
   if (!url || !apiKey) return null;
-  return { url: url.replace(/\/+$/, ""), apiKey };
+  const trimmed = url.replace(/\/+$/, "");
+  const endpoint = /\/mcp$/i.test(trimmed) ? trimmed : `${trimmed}/mcp`;
+  return { endpoint, apiKey };
 }
 
 function looksLikeUrl(input: string): boolean {
@@ -178,22 +340,10 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
   }
 
   const startedAt = Date.now();
-  const transport = new StreamableHTTPClientTransport(new URL(`${cfg.url}/mcp`), {
-    requestInit: {
-      headers: { Authorization: `Bearer ${cfg.apiKey}` },
-    },
-  });
-  const client = new Client({ name: "fintech-web", version: "0.1.0" });
-
-  const closeQuietly = async (): Promise<void> => {
-    await client.close().catch(() => {});
-    await transport.close().catch(() => {});
-  };
-
+  let session: { entry: PoolEntry; pooled: boolean };
   try {
-    await client.connect(transport);
+    session = await acquireSession(cfg);
   } catch (err) {
-    await closeQuietly();
     logger.error("web.mcp.connect_failed", {
       inputHash,
       message: err instanceof Error ? err.message : String(err),
@@ -207,44 +357,45 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
     };
   }
 
+  const { entry, pooled } = session;
   const calls = pickToolCalls(input);
-  const outcomes: ToolOutcome[] = [];
+  let outcomes: ToolOutcome[] = [];
+  let sessionFailed = false;
 
   try {
-    for (const { tool, arguments: args } of calls) {
-      const stage = TOOL_STAGES[tool] ?? "otro";
-      const signal = AbortSignal.timeout(TIMEOUT_PER_CALL_MS);
-      try {
-        const result = await client.callTool(
-          { name: tool, arguments: args },
-          undefined,
-          { signal },
-        );
-        const payload = extractToolPayload(
-          result as {
-            content?: Array<{ type: string; text?: string }>;
-            structuredContent?: unknown;
-            isError?: boolean;
-          },
-        );
-        if (!payload.ok) {
-          outcomes.push({ tool, stage, ok: false, error: payload.error });
-          continue;
+    outcomes = await Promise.all(
+      calls.map(async ({ tool, arguments: args }): Promise<ToolOutcome> => {
+        const stage = TOOL_STAGES[tool] ?? "otro";
+        try {
+          const result = await callToolWithRetry(
+            entry.client,
+            { name: tool, arguments: args },
+            inputHash,
+          );
+          const payload = extractToolPayload(
+            result as {
+              content?: Array<{ type: string; text?: string }>;
+              structuredContent?: unknown;
+              isError?: boolean;
+            },
+          );
+          if (!payload.ok) {
+            return { tool, stage, ok: false, error: payload.error };
+          }
+          return { tool, stage, ok: true, data: payload.data };
+        } catch (err) {
+          if (isTransient(err)) sessionFailed = true;
+          return {
+            tool,
+            stage,
+            ok: false,
+            error: isTimeoutError(err) ? "timeout" : err instanceof Error ? err.message : String(err),
+          };
         }
-        outcomes.push({ tool, stage, ok: true, data: payload.data });
-      } catch (err) {
-        const isTimeout =
-          err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError";
-        outcomes.push({
-          tool,
-          stage,
-          ok: false,
-          error: isTimeout ? "timeout" : err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+      }),
+    );
   } finally {
-    await closeQuietly();
+    await releaseSession(entry, pooled, sessionFailed);
   }
 
   const okCount = outcomes.filter((o) => o.ok).length;
@@ -261,7 +412,7 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
         reason: firstError === "timeout" ? "timeout" : "all_tools_failed",
         message:
           firstError === "timeout"
-            ? "El MCP no respondió a tiempo (30s)."
+            ? `El MCP no respondió a tiempo (${TIMEOUT_PER_CALL_MS / 1000}s).`
             : `No se pudo completar ninguna verificación: ${firstError}`,
       },
     };
