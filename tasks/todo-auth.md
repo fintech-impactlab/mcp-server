@@ -49,11 +49,11 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
 
 ## Slice A2 — Infra: KV secret + secretRef en `ca-mcp`
 
-- [ ] **A2.1** Generar valor inicial del secret `mcp-api-keys`.
+- [x] **A2.1** Generar valor inicial del secret `mcp-api-keys`.
   - **AC:** script `scripts/bootstrap-mcp-api-keys.sh` (o equivalente Node) genera dos pares `(plaintext, keyHash)` para `clientId: "web"` y `clientId: "dev"`, arma el JSON de keys y lo persiste en KV: `az keyvault secret set --vault-name <kv> --name mcp-api-keys --value '<json>'`. Imprime los **plaintexts** una sola vez (los hashes ya quedaron en KV; los plaintexts deben copiarse a A2.4 y a `MCP_API_KEY` del web en A3).
   - **Verify:** `az keyvault secret show --name mcp-api-keys --vault-name <kv> --query "value" -o tsv | jq 'length'` → `2`. Plaintext del cliente "web" se guarda como secret separado en A2.4.
 
-- [ ] **A2.2** Bicep — modificar `infra/main.bicep` para pasar el secret a `mcpApp`.
+- [x] **A2.2** Bicep — modificar `infra/main.bicep` para pasar el secret a `mcpApp`.
   - **AC:** module `mcpApp` recibe un nuevo parámetro:
     ```bicep
     secrets: [
@@ -65,11 +65,11 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
     ```
   - **Verify:** `az bicep build infra/main.bicep` sin errores. `az deployment group create --mode Incremental --template-file infra/main.bicep ...` → `Succeeded`. `az containerapp show -n ca-mcp-fintech-${env} --query "properties.configuration.secrets[].name"` → `["mcp-api-keys"]`. `... --query "properties.template.containers[0].env"` muestra `MCP_API_KEYS_SECRET` con `secretRef: mcp-api-keys`.
 
-- [ ] **A2.3** Wirear `MCP_API_KEYS_SECRET` en código.
+- [x] **A2.3** Wirear `MCP_API_KEYS_SECRET` en código.
   - **AC:** `KeyStore` (de A1.3) lee env var `MCP_API_KEYS_SECRET` (JSON string ya inyectado por Container Apps desde KV) en producción, sin necesidad de llamar al SDK de KV. **Refresh** sigue siendo desde el SDK por si hay rotación sin redeploy. Decisión registrada en `SPEC.md`: env var es bootstrap rápido + cache inicial; refresh es vía SDK directo.
   - **Verify:** `pnpm build` y deploy. `az containerapp logs show -n ca-mcp-fintech-${env}` muestra `KeyStore loaded N keys (initial)` al boot.
 
-- [ ] **A2.4** Secret separado `mcp-api-key-web` (plaintext del cliente "web").
+- [x] **A2.4** Secret separado `mcp-api-key-web` (plaintext del cliente "web").
   - **AC:** `az keyvault secret set --name mcp-api-key-web --vault-name <kv> --value '<plaintext-de-A2.1>'`. Este secret existe en KV solo para que `ca-web` lo consuma vía secretRef. Tiene tag `purpose=mcp-bearer`.
   - **Verify:** `az keyvault secret show --name mcp-api-key-web --vault-name <kv> --query "tags" -o json` muestra `{"purpose":"mcp-bearer"}`.
 

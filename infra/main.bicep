@@ -101,6 +101,28 @@ module mcpApp './modules/container-app.bicep' = {
     maxReplicas: 3
     cpu: '0.5'
     memory: '1Gi'
+    secrets: [
+      {
+        name: 'mcp-api-keys'
+        keyVaultUrl: '${keyVault.outputs.uri}secrets/mcp-api-keys'
+      }
+    ]
+    secretEnvVars: [
+      {
+        name: 'MCP_API_KEYS_SECRET'
+        secretRef: 'mcp-api-keys'
+      }
+    ]
+    envVars: [
+      {
+        name: 'KEY_VAULT_URL'
+        value: keyVault.outputs.uri
+      }
+      {
+        name: 'MCP_API_KEYS_SECRET_NAME'
+        value: 'mcp-api-keys'
+      }
+    ]
   }
 }
 
