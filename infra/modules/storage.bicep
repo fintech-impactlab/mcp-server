@@ -9,7 +9,7 @@ param location string
 @description('Tags estándar.')
 param tags object
 
-@description('Lista de blob containers a crear (private access).')
+@description('Lista de blob containers a crear (private access). DORMANT — la persistencia activa está en el File Share `mcp-data` (ver ADR-001). Se mantienen aprovisionados pero sin role assignment en mcp-identity.bicep, listos para futuros tools que prefieran cache blob (cache.ts createBlobStore).')
 param containerNames array = [
   'cache-cmf'
   'cache-rpsf'

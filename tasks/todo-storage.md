@@ -91,23 +91,23 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 ---
 
-## Slice S4 — Eliminar blob containers obsoletos
+## Slice S4 — Suavizar persistencia blob (opción B: dormant, no borrar)
 
-- [ ] **S4.1** Borrar los 3 blob containers de Bicep.
-  - **AC:** [infra/modules/storage.bicep](../infra/modules/storage.bicep) ya no contiene los recursos `cache-cmf`, `cache-rpsf`, `audit`. Si la policy de retención de blobs solo aplicaba a estos, borrarla también.
-  - **Verify:** `az deployment group what-if` muestra `- Microsoft.Storage/storageAccounts/blobServices/containers/{cache-cmf,cache-rpsf,audit}`. Tras deploy: `az storage container list --account-name <st> --auth-mode login --query "[].name"` no incluye ninguno.
+> **Cambio de alcance vs plan original:** la otra sesión de trabajo decidió mantener `createBlobStore` en `cache.ts` "ready to be wired" para futuros tools (commit `b87c2d9`). En lugar de borrar los containers blob, los marcamos como dormant: aprovisionados pero sin role assignment ni uso runtime. Documentación canónica vive en ADR-001 (S5.1).
 
-- [ ] **S4.2** Quitar role assignment obsoleto en MCP identity.
-  - **AC:** [infra/modules/mcp-identity.bicep](../infra/modules/mcp-identity.bicep) no asigna `Storage Blob Data Contributor`. **No** agregar `Storage File Data SMB Share Contributor` (mount usa account key, no MI). Mantener `AcrPull` y `Key Vault Secrets User`.
-  - **Verify:** `az role assignment list --assignee <uai-mcp-dev-principalId> --all --query "[].roleDefinitionName"` no incluye `Storage Blob Data Contributor`.
+- [x] **S4.1** ~~Borrar los 3 blob containers de Bicep.~~ → **NO se ejecuta.** Containers `cache-cmf`/`cache-rpsf`/`audit` permanecen en `infra/modules/storage.bicep` con comentario explícito de "DORMANT — la persistencia activa está en File Share `mcp-data`". Razón: opcionalidad para futuros tools (CMF, RPSF) sin costo significativo (containers vacíos, blob retention 7d).
 
-- [ ] **S4.3** Actualizar SPEC §2 y §3.7.
-  - **AC:** [SPEC.md](../SPEC.md): tabla de "Cache externo" reemplaza la fila de `@azure/storage-blob` por File Share + `DATA_DIR`. §3.7 explica la decisión actual (filesystem semántico, key en KV) y archiva la decisión previa con marca histórica.
-  - **Verify:** `grep -n "cache-cmf\|cache-rpsf\|cache-blob\|@azure/storage-blob" SPEC.md` solo retorna referencias en contexto histórico, no como mecanismo activo.
+- [x] **S4.2** Quitar role assignment obsoleto en MCP identity.
+  - **AC:** [infra/modules/mcp-identity.bicep](../infra/modules/mcp-identity.bicep) ya no asigna `Storage Blob Data Contributor` ni recibe el param `storageAccountName`. Roles activos: `AcrPull` + `Key Vault Secrets User`. Comentario en cabecera apunta al ADR-001 y a las condiciones para reagregar el role en el futuro. `infra/main.bicep` ya no pasa `storageAccountName` al callsite del módulo.
+  - **Verify:** `az bicep build --file infra/main.bicep` exit 0. ARM compilado del módulo `mcpIdentity` lista solo 2 `Microsoft.Authorization/roleAssignments` (AcrPull + KV Secrets User) — el Storage Blob Data Contributor desapareció. Post-deploy: `az role assignment list --assignee <uai-mcp-dev-principalId> --all --query "[].roleDefinitionName"` no incluye el role.
 
-- [ ] **S4.4** App verde end-to-end.
-  - **AC:** flujo completo (deploy → seed key → upload data → request a `/mcp`) pasa.
-  - **Verify:** repetir Verify de S1.6 + S2.3 + (cuando exista una tool MCP que apenda audit) S3.x.
+- [x] **S4.3** Actualizar SPEC §2 y §3.6 / §3.7.
+  - **AC:** [SPEC.md](../SPEC.md): tabla de "Cache externo" reemplazada por dos filas — "Persistencia activa" (File Share + `DATA_DIR`) y "Cache opcional (dormant)" (blob containers aprovisionados pero sin role). Tabla de RBAC §3.6 marca "_(sin role asignado)_" en la fila Storage Account. §3.7 sobre `data/` explica que el contenido se sincroniza al File Share `mcp-data` con `upload-data-to-share.mjs` y se lee en runtime desde `/app/data`. Refresh operacional ya no menciona blob `cache-cmf` como destino. Docs de `cache.ts` y `refresh-cmf.ts` apuntan al File Share. Tests con Azurite quedan registrados como "reabrir si se reactiva blob backend".
+  - **Verify:** `grep -n "Storage Blob Data Contributor\|persiste a Storage Blob\|cache-cmf\|cache-rpsf" SPEC.md` solo retorna las referencias contextuales (Cache opcional dormant, ADR-001, alternativas históricas), no como mecanismo activo.
+
+- [ ] **S4.4** App verde end-to-end (post-deploy).
+  - **AC:** flujo completo (deploy → seed key → upload data → request a `/mcp`) pasa con el role assignment removido.
+  - **Verify:** redeployar `storage-volume-s1` y repetir Verify de S1.6 + S2.3. La revision nueva no debería ver el role; el File Share sigue funcionando porque el mount usa account key (no MI).
 
 ---
 

@@ -102,7 +102,6 @@ module mcpIdentity './modules/mcp-identity.bicep' = {
     location: location
     tags: commonTags
     acrName: acr.outputs.name
-    storageAccountName: storage.outputs.name
     keyVaultName: keyVault.outputs.name
   }
 }

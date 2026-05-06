@@ -1,7 +1,11 @@
-// User-Assigned Managed Identity para el MCP server, con AcrPull + KV Secrets User
-// + Storage Blob Data Contributor sobre los recursos del Slice 3.
+// User-Assigned Managed Identity para el MCP server, con AcrPull + KV Secrets User.
 // Se usa UAI (en lugar de system-assigned) para evitar el bootstrap circular
 // ACR↔identity al crear el Container App por primera vez.
+//
+// Nota: el role `Storage Blob Data Contributor` se eliminó cuando la persistencia
+// migró a Azure Files SMB montado en /app/data (ver ADR-001). Si en el futuro
+// algún tool decide cablear `createBlobStore` (cache.ts), reagregar el role
+// asignado al storage account correspondiente.
 
 @description('Nombre de la User-Assigned Identity.')
 param name string
@@ -15,16 +19,12 @@ param tags object
 @description('Nombre del ACR sobre el que conceder AcrPull.')
 param acrName string
 
-@description('Nombre del Storage Account sobre el que conceder Blob Data Contributor.')
-param storageAccountName string
-
 @description('Nombre del Key Vault sobre el que conceder Secrets User.')
 param keyVaultName string
 
 // Built-in role IDs (Azure RBAC)
 var acrPullRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var kvSecretsUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-var storageBlobContributorRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
 
 resource uai 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: name
@@ -34,10 +34,6 @@ resource uai 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
-}
-
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
-  name: storageAccountName
 }
 
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
@@ -59,16 +55,6 @@ resource kvSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-0
   name: guid(kv.id, uai.id, 'KeyVaultSecretsUser')
   properties: {
     roleDefinitionId: kvSecretsUserRoleId
-    principalId: uai.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource storageBlobAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: storage
-  name: guid(storage.id, uai.id, 'StorageBlobDataContributor')
-  properties: {
-    roleDefinitionId: storageBlobContributorRoleId
     principalId: uai.properties.principalId
     principalType: 'ServicePrincipal'
   }

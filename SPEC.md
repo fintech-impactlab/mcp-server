@@ -39,7 +39,7 @@ Confirmado en `mcp-server/package.json` (bootstrap actual) y planeado para Clust
 | HTTP server | `express` 4.21.2 | ✅ instalado | Middleware ergonómico (body limit, futuras CORS/rate-limit). MCP SDK monta sobre el transport HTTP. |
 | HTTP client (outbound) | `undici` | ⏳ a sumar en Slice 0 | Timeouts, abort signals y retries más controlables que fetch nativo. Pool de conexiones. |
 | Validación | `zod` v3+ | ⏳ a sumar en Slice 0 | Validar todo input externo en bordes (CLAUDE.md). |
-| XLSX parser | `exceljs` | ⏳ a sumar en Slice 4 (solo job `refresh-cmf`) | El runtime de tools **no** parsea XLSX: lee CSV ya normalizado desde el blob `cache-cmf`. Solo el job programado `refresh-cmf` baja el XLSX desde CMF Alertas y lo convierte. Mantenimiento activo, types modernos, sin CVEs abiertas. |
+| XLSX parser | `exceljs` | ⏳ a sumar en Slice 4 (solo job `refresh-cmf`) | El runtime de tools **no** parsea XLSX: lee CSV ya normalizado desde `/app/data/snapshots/cmf/` (File Share, ver ADR-001). Solo el job programado `refresh-cmf` baja el XLSX desde CMF Alertas y lo convierte. Mantenimiento activo, types modernos, sin CVEs abiertas. |
 | CSV parser (runtime) | built-in (Node `string.split` + Zod) | ⏳ a sumar en Slice 4 | Los CSVs de CMF tienen shape simple (encabezados + filas planas). Sin dep extra a menos que aparezca un campo con escape complejo; entonces evaluar `csv-parse`. |
 | HTML scraping | `cheerio` | ⏳ a sumar en Slice 4-8 | Para SII, dequienes.cl, FinteChile, CSIRT. Liviano, sin browser headless. |
 | WHOIS / RDAP | `whois-json` + cliente RDAP custom | ⏳ a sumar en Slice 6-7 | NIC Chile expone RDAP. Internacional vía WHOIS. |
@@ -47,7 +47,8 @@ Confirmado en `mcp-server/package.json` (bootstrap actual) y planeado para Clust
 | Coverage | `node --experimental-test-coverage` | ⏳ a habilitar en Slice 1 | Requisito 100% en motor de scoring + parsers (CLAUDE.md). |
 | Lint | `eslint` + `@typescript-eslint` | ⏳ a sumar en Slice 0 | Custom rule para bloquear `console.log` con argumentos no hasheados. |
 | Format | `prettier` | ⏳ a sumar en Slice 0 | Default config, ancho 100. |
-| Cache externo | `@azure/storage-blob` + managed identity | ⏳ a sumar en Slice 0 | Containers `cache-cmf`, `cache-rpsf`, `audit` (provistos por infra Slice 3.2). Fallback in-memory en dev. |
+| Persistencia activa | Azure Files SMB montado en `/app/data` (`DATA_DIR`) | ✅ provisto por infra (storage-volume-s1) | Helpers tipados en `src/lib/storage.ts` con guard anti path-traversal. Layout: `snapshots/cmf/`, `snapshots/rpsf/`, `normativas/`, `audit/<YYYY-MM-DD>.jsonl`. Fuente única de verdad runtime. Ver ADR-001. |
+| Cache opcional (dormant) | `@azure/storage-blob` + `createBlobStore` | ⏸ aprovisionado, no cableado | Containers `cache-cmf`, `cache-rpsf`, `audit` quedan creados en `infra/modules/storage.bicep` pero sin role assignment. `bootstrapCache()` hace fallback a in-memory cuando falta `AZURE_STORAGE_ACCOUNT_NAME`. Reabrir solo si un tool futuro requiere cache distribuido entre réplicas que no encaje en File Share. |
 | Secrets | `@azure/identity` + `secretRef` en Container Apps | ⏳ Identity SDK a sumar; secretRef definido en infra Slice 7.1 | KV vía managed identity. Cero secretos en env vars de runtime. |
 | Telemetría | **Logs JSON estructurados a stdout** → Container Apps Console Logs → Log Analytics workspace `log-fintech-${env}` (provisto por infra Slice 2.2). | ⏳ wrapper a sumar en Slice 0 | Sin SDK adicional, sin costo de ingestión App Insights. Queries vía `az monitor log-analytics query`. |
 | App Insights SDK | `applicationinsights` | ⏸ deferred | Decisión actual: no usar. La infra Slice 7 (App Insights wiring + alertas) queda diferida. Reabrir si: (a) llega requerimiento de APM detallado / Live Metrics, (b) los logs de LA no alcanzan para correlación distribuida, (c) se suma OTel y App Insights es el sink natural. |
@@ -133,7 +134,7 @@ El MCP corre como Container App `ca-mcp-<env>` con **User-Assigned Identity** de
 |---|---|---|
 | ACR (`<acr>`) | `AcrPull` | Container Apps jala la imagen sin admin user. |
 | Key Vault (`<kv>`) | `Key Vault Secrets User` | Lectura de secrets vía `secretRef` (API keys de PhishTank, GSB, BCE; bearer keys del MCP). |
-| Storage Account (`<storage>`) | `Storage Blob Data Contributor` | Lectura/escritura en `cache-cmf`, `cache-rpsf`, `audit`. |
+| Storage Account (`<storage>`) | _(sin role asignado)_ | El File Share `mcp-data` se monta vía CAE storage definition (account key, no MI; ver ADR-001). Los blob containers quedan dormant (no se acceden desde runtime). Si un tool futuro cablea `createBlobStore`, asignar `Storage Blob Data Contributor` en ese momento. |
 
 **Decisiones derivadas:**
 
@@ -148,22 +149,22 @@ El repo tiene una carpeta `data/` en la raíz (fuera de `mcp-server/`) que docum
 
 | Carpeta / archivo | Contenido | Rol |
 |---|---|---|
-| `data/*.csv` | Snapshots vigentes de los 4 listados de CMF Alertas Ciudadanas (Plataformas / Apps Crédito / Créditos Fraudulentos / Otras), convertidos desde XLSX. | Snapshot versionado + fixture de referencia. **No se lee en runtime.** |
-| `data/normativas/*.{pdf,md}` | NCG 502/503/504/514, Manual SIF, Circ 2.345 (PDF original + texto plano `pdftotext -layout`). | Referencia para el equipo + posibles citas en `cmf-norms.ts`. **No se lee en runtime.** |
-| `data/APIS.md` | Documentación técnica consolidada de las 5 APIs REST (BCE BDE, BCN Ley Fácil, PhishTank, GSB v4, URLhaus): endpoints, auth, parámetros, ejemplos request/response, rate limits, mapping de credenciales a Key Vault, política de timeouts/retries/cache. | Source-of-truth para implementar `tools/<name>/client.ts`. Cualquier divergencia entre código y `data/APIS.md` es un bug en uno de los dos. |
+| `data/*.csv` | Snapshots vigentes de los 4 listados de CMF Alertas Ciudadanas (Plataformas / Apps Crédito / Créditos Fraudulentos / Otras), convertidos desde XLSX. | Source de bootstrap del File Share + fixture para tests. En runtime se lee desde `/app/data/snapshots/cmf/`. |
+| `data/normativas/*.{pdf,md}` | NCG 502/503/504/514, Manual SIF, Circ 2.345 (PDF original + texto plano `pdftotext -layout`). | Source de bootstrap del File Share. En runtime se lee desde `/app/data/normativas/` (incluye subcarpeta `sii/`). |
+| `data/APIS.md` | Documentación técnica consolidada de las 5 APIs REST (BCE BDE, BCN Ley Fácil, PhishTank, GSB v4, URLhaus): endpoints, auth, parámetros, ejemplos request/response, rate limits, mapping de credenciales a Key Vault, política de timeouts/retries/cache. | Source-of-truth para implementar `tools/<name>/client.ts`. Documento para humanos, **no** se sube al File Share. |
 
-**Decisión: `data/` es repo-side, no runtime.** Tres caminos se evaluaron:
+**Decisión: `data/` se sincroniza al File Share `mcp-data` (montado en `/app/data`).** Tres caminos se evaluaron:
 
-- (A) Cargar CSVs al blob al deploy y leer solo del blob. _Descartada:_ duplica la lógica de seed.
+- (A) Cargar CSVs al blob `cache-cmf` al deploy y leer solo del blob. _Descartada:_ duplica la lógica de seed; requiere SDK adicional para lectura.
 - (B) `COPY data/` en el Dockerfile y leer con path relativo. _Descartada:_ acopla Docker build a archivos fuera de `mcp-server/`, complica imagen y CI.
-- **(C) elegida:** `data/` vive solo en el repo. El **primer deploy ejecuta `refresh-cmf` como bootstrap** para poblar `cache-cmf` desde la fuente live (XLSX de CMF). Los CSVs de `data/` se usan en tests (referenciados por `__fixtures__/` o leídos con path relativo desde tests fuera del Dockerfile) y como referencia para el equipo. El Dockerfile **no** los copia.
+- **(C) elegida (revisada en ADR-001):** `data/` vive en el repo como fuente versionada y se sincroniza al File Share `mcp-data` con `mcp-server/scripts/upload-data-to-share.mjs`. La Container App MCP monta el share en `/app/data` (`DATA_DIR`). Helpers tipados en `src/lib/storage.ts` resuelven paths con guard anti-traversal.
 
 **Relación con `__fixtures__/`:**
 
 - `data/*.csv` = snapshot completo y vigente del listado real (todo lo que CMF expuso a la fecha de refresh). Refresca un humano + una herramienta.
 - `mcp-server/src/tools/<name>/__fixtures__/` = subconjuntos curados o casos edge (un fraude conocido, una fila malformada, un listado vacío, etc.) usados por tests específicos. Mantenidos a mano.
 
-**Refresh operacional:** `pnpm refresh:cmf` (Slice 4.2) se ejecuta como Container Apps Job programado en producción y, además, se invoca **manualmente** al primer deploy de un nuevo entorno para inicializar el blob `cache-cmf`. Los CSVs en `data/` se actualizan vía PR cuando el equipo decide bumpar el snapshot de referencia (no automáticamente).
+**Refresh operacional:** los snapshots CMF se actualizan vía PR cuando el equipo decide bumpar el snapshot de referencia (no automáticamente). Tras el merge se re-corre `mcp-server/scripts/upload-data-to-share.mjs` para sincronizar al File Share. Cuando exista `pnpm refresh:cmf` (Slice 4.2), correrá como Container Apps Job programado y persistirá directamente a `/app/data/snapshots/cmf/` (no al blob `cache-cmf`).
 
 ---
 
@@ -184,7 +185,8 @@ mcp-server/
     │   └── registry.ts             # registerTool(server, tool) — a crear en Slice 0.7
     ├── lib/
     │   ├── logging.ts              # hashInput + emitter de logs JSON a stdout (un objeto por línea)
-    │   ├── cache.ts                # getOrSet con Storage Blob + fallback in-mem
+    │   ├── cache.ts                # getOrSet con in-memory store (default) o Blob (dormant, ver ADR-001)
+    │   ├── storage.ts              # filesystem helpers contra DATA_DIR (/app/data) con guard anti path-traversal
     │   ├── http.ts                 # undici client con defaults (timeout, retry, UA)
     │   ├── errors.ts               # ToolError + subclases por fuente
     │   └── schemas.ts              # BaseToolResponse, Source, Reason, Facts
@@ -207,8 +209,8 @@ mcp-server/
     │   ├── channels.ts             # CMF, SERNAC, CSIRT, denuncia penal
     │   └── channels-matrix.ts      # mapping → canales[]
     └── jobs/
-        ├── refresh-cmf.ts          # script para refrescar cache-cmf (cron diario en Container Apps Job)
-        └── refresh-rpsf.ts         # script semanal
+        ├── refresh-cmf.ts          # script para refrescar /app/data/snapshots/cmf/ (cron diario en Container Apps Job)
+        └── refresh-rpsf.ts         # script semanal, persiste a /app/data/snapshots/rpsf/
 ```
 
 ---
@@ -228,8 +230,8 @@ Gestor de paquetes: **pnpm**. Ejecutados desde `mcp-server/`:
 | `pnpm test:coverage` | ⏳ | `node --experimental-test-coverage --test dist/**/*.test.js`; CI falla si scoring/ <100% (Slice 1). |
 | `pnpm lint` | ⏳ | ESLint + custom rule de logging hasheado (Slice 0). |
 | `pnpm scoring:docs` | ⏳ | Genera `SCORING.md` desde `src/scoring/rules.ts` (Slice 1.4). |
-| `pnpm refresh:cmf` | ⏳ | Descarga 4 XLSX de CMF Alertas y persiste a Storage Blob `cache-cmf` (Slice 4.2). |
-| `pnpm refresh:rpsf` | ⏳ | Scraping CMF RPSF + FinteChile, persiste a `cache-rpsf` (Slice 5.3). |
+| `pnpm refresh:cmf` | ⏳ | Descarga 4 XLSX de CMF Alertas y persiste CSVs en `/app/data/snapshots/cmf/` (File Share, Slice 4.2). |
+| `pnpm refresh:rpsf` | ⏳ | Scraping CMF RPSF + FinteChile, persiste en `/app/data/snapshots/rpsf/` (Slice 5.3). |
 
 CI ejecuta: `lint`, `typecheck`, `test:coverage`, `build` antes del docker build (infra Slice 8.3).
 
@@ -321,7 +323,7 @@ Cada tool nueva debe incluir:
 
 ### 7.4 Cache testing
 
-- Tests de `src/lib/cache.ts` corren contra **Azurite** (Storage Blob emulator) en docker. CI levanta servicio `azurite` previo a test job.
+- Tests de `src/lib/cache.ts` corren contra el `createInMemoryStore` (default activo). Si en el futuro se reactiva el blob backend (ADR-001), reabrir `Azurite` en docker con servicio `azurite` previo al test job. Tests de `src/lib/storage.ts` usan `tmpdir()` con `DATA_DIR` override por test.
 - Tests in-memory para verificar fallback en dev sin Azure.
 
 ### 7.5 Determinismo
@@ -336,12 +338,12 @@ Cada tool nueva debe incluir:
 
 - Validar todo input externo con Zod antes de procesar.
 - Hashear con `hashInput` cualquier RUT, URL, dominio o nombre antes de loguear.
-- Usar la UAI `uai-mcp-<env>` (vía `DefaultAzureCredential`) para todo acceso a Storage Blob y Key Vault. Nunca strings de conexión en runtime.
+- Usar la UAI `uai-mcp-<env>` (vía `DefaultAzureCredential`) para todo acceso a Key Vault. El File Share `/app/data` se monta vía CAE storage definition (account key, no MI; ver ADR-001). Nunca strings de conexión en runtime.
 - Asignar el rol mínimo a `uai-mcp-<env>` en Bicep cuando se sume un recurso Azure nuevo.
 - Usar `secretRef` en Container Apps para inyectar secretos desde KV. Nunca env var directa con secreto.
 - Timeouts explícitos en todo request a fuente externa (5s default).
 - Rate limit respetuoso a fuentes scrapeadas: máximo 1 req/s por fuente.
-- Cache en Storage Blob con TTL apropiado por tipo de fuente (tasas BCE 24h, leyes BCN 7d, RPSF 24h, CMF Alertas 24h).
+- Cache con TTL apropiado por tipo de fuente (tasas BCE 24h, leyes BCN 7d, RPSF 24h, CMF Alertas 24h). Backend default in-memory por réplica; persistencia entre réplicas vía `/app/data` o (futuro) blob dormant.
 - Disclaimer obligatorio en `analyze_business_model`.
 - Citar fuente y `fetchedAt` en todo `Source` retornado.
 - Retornar `dataAvailable: false` cuando una fuente cae; nunca romper el verdict por una fuente.
