@@ -49,6 +49,8 @@ jobs:
           tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_RECAPTCHA_SITE_KEY=${{ vars.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
 
       - name: Update Container App revision
         run: |

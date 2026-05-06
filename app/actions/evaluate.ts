@@ -1,6 +1,7 @@
 "use server";
 
 import { fullEvaluation, type FullEvaluation, type McpClientError } from "@/lib/mcp-client";
+import { verifyRecaptcha } from "@/lib/recaptcha";
 
 export type EvaluateState =
   | { status: "idle" }
@@ -24,6 +25,18 @@ export async function evaluateAction(
   }
   if (input.length > MAX_INPUT) {
     return { status: "invalid", message: `Máximo ${MAX_INPUT} caracteres.` };
+  }
+
+  const captchaToken = formData.get("g-recaptcha-response");
+  const captcha = await verifyRecaptcha(typeof captchaToken === "string" ? captchaToken : null);
+  if (!captcha.ok) {
+    const message =
+      captcha.reason === "missing_token"
+        ? "Confirma el captcha para continuar."
+        : captcha.reason === "rejected"
+          ? "El captcha fue rechazado. Intenta de nuevo."
+          : "No se pudo validar el captcha. Reintenta en unos segundos.";
+    return { status: "invalid", message };
   }
 
   const result = await fullEvaluation(input);
