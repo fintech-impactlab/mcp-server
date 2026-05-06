@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 import { logger } from "./lib/logging.js";
+import { createStorage } from "./lib/storage.js";
 import { bootstrapCache } from "./server/bootstrap-cache.js";
 import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
@@ -13,6 +14,9 @@ import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_
 const PORT = Number(process.env.PORT ?? 3001);
 
 async function main(): Promise<void> {
+  const storage = createStorage();
+  logger.event("server.data_dir", { path: storage.getDataDir() });
+
   const keyStore = new KeyStore({ loader: resolveKeyLoader() });
   try {
     await keyStore.warm();

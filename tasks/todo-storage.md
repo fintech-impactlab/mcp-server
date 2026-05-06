@@ -66,7 +66,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 ## Slice S3 — Módulo `src/lib/storage.ts` con helpers tipados
 
-- [ ] **S3.1** Implementar helpers de I/O contra `DATA_DIR`.
+- [x] **S3.1** Implementar helpers de I/O contra `DATA_DIR`.
   - **AC:** [src/lib/storage.ts](../src/lib/storage.ts) (nuevo) exporta:
     - `getDataDir(): string` — lee `process.env.DATA_DIR ?? path.resolve(process.cwd(), 'data')`.
     - `readDataFile(relativePath: string): Promise<Buffer>`.
@@ -77,15 +77,15 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
     - Errores tipados: `StorageReadError`, `StorageWriteError`, `StoragePathError` (clases con `cause` opcional).
   - **Verify:** `pnpm tsc --noEmit` verde. Importable desde `src/index.ts` sin errores.
 
-- [ ] **S3.2** Tests de unidad para `storage.ts`.
+- [x] **S3.2** Tests de unidad para `storage.ts`.
   - **AC:** [src/lib/storage.test.ts](../src/lib/storage.test.ts) cubre: (a) `readDataFile` lee archivo existente; (b) `writeDataFile` crea archivo + directorios padre; (c) path traversal con `../etc/passwd` lanza `StoragePathError`; (d) path absoluto fuera de `DATA_DIR` lanza `StoragePathError`; (e) `appendAuditLine` agrega líneas sin sobrescribir; (f) `listDataFiles` retorna solo files (no dirs). Usa `tmpdir()` + `DATA_DIR` override por test.
   - **Verify:** `pnpm test src/lib/storage.test.ts` ≥ 6 tests passing. Cobertura del módulo ≥ 90% (medir con vitest coverage).
 
-- [ ] **S3.3** Loggear `dataDir` al boot.
+- [x] **S3.3** Loggear `dataDir` al boot.
   - **AC:** [src/index.ts](../src/index.ts) llama `getDataDir()` al iniciar y emite log JSON `{ event: "boot.dataDir", path: "<...>" }`. Sin PII (path de filesystem es seguro). No expone en `/health` (innecesario).
   - **Verify:** `pnpm build && pnpm start` con `DATA_DIR=/tmp/x` imprime el JSON con ese path en stdout.
 
-- [ ] **S3.4** Quality gates verdes.
+- [x] **S3.4** Quality gates verdes (ejecutado 2026-05-06: `pnpm typecheck` + `pnpm build` + `pnpm test` → 223/223 tests pasan, 12 nuevos para storage).
   - **AC:** `pnpm tsc --noEmit` + `pnpm lint` (o `biome check`) + `pnpm test` todos verdes.
   - **Verify:** comandos retornan exit 0.
 
