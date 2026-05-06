@@ -21,6 +21,7 @@ export interface DomainFacts {
   ageDays?: number;
   sslIssuer?: string | null;
   sslStatus?: "valid" | "expired" | "self_signed" | "invalid" | "missing";
+  redirectCount?: number;
 }
 
 export interface BlacklistFacts {
@@ -127,6 +128,18 @@ export const rules: ReadonlyArray<Rule> = [
     fundamento:
       "Cualquier sitio que reciba RUT/credenciales sin TLS no es viable como contraparte financiera, ni siquiera en 2026.",
     predicate: (f) => f.domain?.sslStatus === "missing",
+  },
+  {
+    id: "domain.too_many_redirects",
+    category: "domain",
+    weight: -15,
+    reason: "Cadena de redirecciones >3 hops",
+    fundamento:
+      "Cadenas largas de redirección entre dominios opacan el destino real y son típicas de campañas de scam que lavan tráfico via cloaking. ≥4 hops es señal débil pero notoria.",
+    predicate: (f) => {
+      const rc = f.domain?.redirectCount;
+      return typeof rc === "number" && rc >= 4;
+    },
   },
 
   // ── Blacklist ──────────────────────────────────────────────────────────

@@ -201,23 +201,23 @@ Scraping respetuoso de CMF RPSF + FinteChile. Habilita Slice 9 (parsers reutiliz
 
 Sin dependencias. WHOIS + SSL + redirects.
 
-- [ ] **6.1** Cliente WHOIS.
+- [x] **6.1** Cliente WHOIS.
   - **AC:** lib `whois-json` o equivalente. Timeout 5s. `WHOISError` en fallos. Extrae `creationDate`, `registrar`.
   - **Verify:** fixture WHOIS parsea.
 
-- [ ] **6.2** Inspector SSL.
+- [x] **6.2** Inspector SSL.
   - **AC:** TLS handshake (`tls.connect`) extrae issuer (Let's Encrypt, DigiCert, etc.), validity, autofirma. Sin requests HTTP.
   - **Verify:** test contra cert mock + timeout corto.
 
-- [ ] **6.3** Redirect chain.
+- [x] **6.3** Redirect chain.
   - **AC:** fetch con `redirect: 'manual'`, sigue cadena hasta 5 niveles, registra cada hop.
   - **Verify:** fixture servidor de prueba.
 
-- [ ] **6.4** Reglas de scoring.
+- [x] **6.4** Reglas de scoring.
   - **AC:** `domain.young_lt30d` (-25), `domain.young_lt7d` (-40), `domain.ssl_lets_encrypt_recent` (-10), `domain.ssl_self_signed` (-30), `domain.ssl_invalid` (-40), `domain.too_many_redirects` (-15).
   - **Verify:** tests afirmativo/negativo.
 
-- [ ] **6.5** Schemas + handler + tests + trazas.
+- [x] **6.5** Schemas + handler + tests + trazas.
   - **AC:** input: `{ url: string (URL valida) }`. Output con `domainAge`, `creationDate`, `sslStatus`, `sslIssuer`, `redirects`.
   - **Verify:** `npm test -- analyze_domain` verde.
 

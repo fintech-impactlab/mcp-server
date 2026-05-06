@@ -1,0 +1,13 @@
+   Domain Name: NEW-SCAM-SITE.COM
+   Registry Domain ID: 2999999999_DOMAIN_COM-VRSN
+   Registrar WHOIS Server: whois.namecheap.com
+   Registrar URL: http://www.namecheap.com
+   Updated Date: 2026-04-28T10:00:00Z
+   Creation Date: 2026-04-25T08:15:00Z
+   Registry Expiry Date: 2027-04-25T08:15:00Z
+   Registrar: NameCheap, Inc.
+   Registrar IANA ID: 1068
+   Domain Status: clientTransferProhibited
+   Name Server: DNS1.REGISTRAR-SERVERS.COM
+   Name Server: DNS2.REGISTRAR-SERVERS.COM
+   DNSSEC: unsigned

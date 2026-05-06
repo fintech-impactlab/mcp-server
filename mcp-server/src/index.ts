@@ -9,6 +9,7 @@ import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
 import { registerTool } from "./server/registry.js";
+import { createAnalyzeDomainTool } from "./tools/analyze_domain/index.js";
 import { createCheckBlacklistTool } from "./tools/check_blacklist/index.js";
 import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
@@ -87,6 +88,9 @@ async function main(): Promise<void> {
     }),
   );
   logger.event("server.tool_registered", { toolName: "check_whitelist" });
+
+  registerTool(mcp, createAnalyzeDomainTool());
+  logger.event("server.tool_registered", { toolName: "analyze_domain" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

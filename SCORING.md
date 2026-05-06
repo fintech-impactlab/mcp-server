@@ -4,7 +4,7 @@
 
 Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-scoring).
 
-**Reglas:** 15.
+**Reglas:** 19.
 
 ## Convenciones
 
@@ -23,9 +23,13 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 | `domain.ssl_self_signed` | domain | -30 | Certificado SSL autofirmado | Un sitio que pide datos personales con SSL autofirmado no pasa la verificación de cadena de confianza; típico de servidores improvisados o intencionalmente opacos. |
 | `domain.ssl_invalid` | domain | -40 | Certificado SSL inválido o expirado | SSL inválido o vencido invalida cualquier promesa de seguridad de transporte y suele indicar abandono operacional o fraude descuidado. |
 | `domain.ssl_missing` | domain | -40 | Sitio sin certificado SSL | Cualquier sitio que reciba RUT/credenciales sin TLS no es viable como contraparte financiera, ni siquiera en 2026. |
+| `domain.too_many_redirects` | domain | -15 | Cadena de redirecciones >3 hops | Cadenas largas de redirección entre dominios opacan el destino real y son típicas de campañas de scam que lavan tráfico via cloaking. ≥4 hops es señal débil pero notoria. |
 | `blacklist.cmf_plataformas_no_reguladas` | blacklist | -50 | Aparece en CMF — Plataformas de Inversión No Reguladas | La CMF publica este listado tras detectar oferta pública de inversión sin autorización. Inclusión = banderazo regulatorio chileno explícito. |
 | `blacklist.cmf_creditos_fraudulentos` | blacklist | -50 | Aparece en CMF — Créditos Fraudulentos | Listado oficial CMF de operadores de crédito fraudulento. Inclusión es señal regulatoria dura. |
 | `blacklist.phishtank` | blacklist | -40 | URL reportada en PhishTank | PhishTank confirma reportes vía verificación comunitaria. False positives son raros en URLs verified. |
+| `blacklist.cmf_apps_creditos_no_reguladas` | blacklist | -50 | Aparece en CMF — Apps de Créditos No Reguladas | Listado oficial CMF de apps de crédito sin autorización formal. Misma fuerza señalética que Plataformas / Créditos Fraudulentos. |
+| `blacklist.cmf_otras_entidades_no_reguladas` | blacklist | -50 | Aparece en CMF — Otras Entidades No Reguladas | Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado que no encajan en los otros 3 listados. |
+| `blacklist.urlhaus` | blacklist | -30 | URL reportada en URLhaus | URLhaus de abuse.ch lista URLs activas asociadas a malware. Hit confirma intencionalidad maliciosa, peso menor que listados regulatorios chilenos pero suma. |
 | `whitelist.rpsf_autorizada` | whitelist | +30 | Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros) | Estado 'autorizada' bajo Ley 21.521 implica revisión formal CMF aprobada. Es la señal positiva más fuerte de la lista de la CMF. |
 | `whitelist.rpsf_en_revision` | whitelist | +10 | Solicitud presente en RPSF, en revisión por CMF | Período transitorio Ley 21.521: la entidad opera legalmente mientras CMF resuelve. No es garantía pero es señal positiva intermedia (179 autorizadas + 300 en revisión a feb 2025). |
 | `whitelist.fintechile_miembro` | whitelist | +15 | Miembro activo de FinteChile | Membresía gremial implica al menos un nivel mínimo de escrutinio entre pares; señal positiva intermedia mientras la Ley Fintech termina de implementarse. |
@@ -35,13 +39,16 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 
 ## Por categoría
 
-### blacklist (3 reglas, suma de pesos = -140)
+### blacklist (6 reglas, suma de pesos = -270)
 
 - **`blacklist.cmf_plataformas_no_reguladas`** (-50): Aparece en CMF — Plataformas de Inversión No Reguladas
 - **`blacklist.cmf_creditos_fraudulentos`** (-50): Aparece en CMF — Créditos Fraudulentos
 - **`blacklist.phishtank`** (-40): URL reportada en PhishTank
+- **`blacklist.cmf_apps_creditos_no_reguladas`** (-50): Aparece en CMF — Apps de Créditos No Reguladas
+- **`blacklist.cmf_otras_entidades_no_reguladas`** (-50): Aparece en CMF — Otras Entidades No Reguladas
+- **`blacklist.urlhaus`** (-30): URL reportada en URLhaus
 
-### domain (6 reglas, suma de pesos = -185)
+### domain (7 reglas, suma de pesos = -200)
 
 - **`domain.young_lt7d`** (-40): Dominio registrado hace menos de 7 días
 - **`domain.young_lt30d`** (-25): Dominio registrado hace menos de 30 días (≥7)
@@ -49,6 +56,7 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 - **`domain.ssl_self_signed`** (-30): Certificado SSL autofirmado
 - **`domain.ssl_invalid`** (-40): Certificado SSL inválido o expirado
 - **`domain.ssl_missing`** (-40): Sitio sin certificado SSL
+- **`domain.too_many_redirects`** (-15): Cadena de redirecciones >3 hops
 
 ### entity (3 reglas, suma de pesos = -70)
 

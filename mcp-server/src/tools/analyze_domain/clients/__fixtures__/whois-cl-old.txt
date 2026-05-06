@@ -1,0 +1,13 @@
+% Whois Server for the .cl ccTLD
+% This information is subject to a Terms and Conditions
+% See https://www.nic.cl/normativa/aup.html
+
+Domain name: ejemplo.cl
+Registrant name: Empresa Ejemplo S.A.
+Registrant organisation: Empresa Ejemplo S.A.
+Registrar name: NIC Chile
+Registrar URL: https://www.nic.cl
+Creation date: 2010-04-15 11:23:40 CLT
+Expiration date: 2027-04-15 11:23:40 CLT
+Name server: ns1.ejemplo.cl
+Name server: ns2.ejemplo.cl

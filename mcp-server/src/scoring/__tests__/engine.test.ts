@@ -96,6 +96,7 @@ describe("score — exhaustividad de reglas", () => {
       { domain: { sslStatus: "self_signed" } },
       { domain: { sslStatus: "invalid" } },
       { domain: { sslStatus: "missing" } },
+      { domain: { redirectCount: 5 } }, // too_many_redirects
       { blacklist: { sources: ["cmf-plataformas-no-reguladas"] } },
       { blacklist: { sources: ["cmf-creditos-fraudulentos"] } },
       { blacklist: { sources: ["cmf-apps-creditos-no-reguladas"] } },
