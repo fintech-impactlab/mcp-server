@@ -39,7 +39,12 @@ describe("get_applicable_regulation — happy path", () => {
     const parsed = OutputSchema.safeParse(response);
     assert.equal(parsed.success, true, parsed.success ? "" : JSON.stringify(parsed.error.issues));
     assert.equal(response.score, 0);
-    assert.equal(response.reasons.length, 0);
+    // Phase 3 (Slice O1): emite 1 reason informativo (peso 0) que enlaza
+    // legalRefs del catálogo legal único.
+    assert.equal(response.reasons.length, 1);
+    assert.equal(response.reasons[0]?.weight, 0);
+    assert.equal(response.reasons[0]?.ruleId, "regulation.applicable_catalog");
+    assert.ok((response.reasons[0]?.legalRefs?.length ?? 0) > 0);
     const ids = response.leyesAplicables.map((l) => l.id);
     assert.ok(ids.includes("ley-general-bancos"));
     assert.ok(ids.includes("ley-19496"));

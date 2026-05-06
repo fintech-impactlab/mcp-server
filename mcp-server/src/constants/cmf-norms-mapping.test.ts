@@ -5,7 +5,7 @@ import { CMF_NORMS_MAPPING, normsFor } from "./cmf-norms-mapping.js";
 import type { EntityType } from "../tools/check_regulator_status/classifier.js";
 
 describe("cmf-norms-mapping", () => {
-  it("cubre los 9 EntityType conocidos", () => {
+  it("cubre los 10 EntityType conocidos", () => {
     const expected: ReadonlyArray<EntityType> = [
       "banco",
       "caja_compensacion",
@@ -15,6 +15,7 @@ describe("cmf-norms-mapping", () => {
       "emisor_tarjetas",
       "ecommerce_credito",
       "prestamista_no_regulado",
+      "no_fiscalizada",
       "desconocido",
     ];
     for (const t of expected) {

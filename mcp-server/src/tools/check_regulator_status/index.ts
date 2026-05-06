@@ -3,6 +3,7 @@ import type { Cache } from "../../lib/cache.js";
 import { CMFFetchError, FinteChileError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { Storage } from "../../lib/storage.js";
@@ -83,6 +84,7 @@ export function createCheckRegulatorStatusTool(
         nombre: query,
         rpsfTipoEntidad: rpsfMatch?.tipoEntidad ?? null,
         rpsfEstado: estadoRPSF,
+        rpsfDataAvailable: rpsf.dataAvailable,
         giros,
         enListaBancos,
       });
@@ -102,10 +104,67 @@ export function createCheckRegulatorStatusTool(
       };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: por fuente OK que no contribuyó signal rule.
+      const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
+      const regulatorRuleFired = [...firedRules].some((id) => id.startsWith("regulator."));
+      const infoReasons = [];
+      if (rpsf.dataAvailable && !regulatorRuleFired && rpsfMatches.length === 0) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "cmf_rpsf_no_match",
+            "No figura en el RPSF (Ley 21.521)",
+            {
+              fundamento:
+                "Se consultó el Registro de Prestadores de Servicios Financieros; el RUT/nombre no figura como autorizado ni en revisión.",
+              legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"],
+            },
+          ),
+        );
+      }
+      if (fintechile.dataAvailable && !membresiaFinteChile) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "fintechile_no_match",
+            "No figura como miembro activo de FinteChile",
+            {
+              fundamento: "Se consultó el listado público de socios de FinteChile.",
+            },
+          ),
+        );
+      }
+      if (giros.length > 0 && !regulatorRuleFired) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "sii_giros_verified",
+            `Giros SII verificados (${giros.length}); no disparan reglas regulatorias`,
+            {
+              fundamento:
+                "Los giros declarados en el SII no apuntan a operación fintech inscrita ni a giro inconsistente con la categoría detectada.",
+              legalRefs: ["CL-CT-66"],
+            },
+          ),
+        );
+      }
+
       const sources = [
-        { name: "cmf-rpsf", fetchedAt, dataAvailable: rpsf.dataAvailable },
+        {
+          name: "cmf-rpsf",
+          documentId: "CMF-NCG-514-2024",
+          articulo: "Sección I.C — Registro de Prestadores de Servicios Basados en Información",
+          fetchedAt,
+          dataAvailable: rpsf.dataAvailable,
+        },
         { name: "fintechile", fetchedAt, dataAvailable: fintechile.dataAvailable },
-        { name: "sii-giros", fetchedAt, dataAvailable: giros.length > 0 },
+        {
+          name: "sii-giros",
+          documentId: "CL-CT-66",
+          articulo: "Artículo 66 — Inicio de actividades y giro tributario",
+          fetchedAt,
+          dataAvailable: giros.length > 0,
+        },
       ];
 
       logger.event("tool.call", {
@@ -121,7 +180,7 @@ export function createCheckRegulatorStatusTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         query,
         tipoEntidad,

@@ -1,4 +1,6 @@
 import type { Reason, Source } from "../../lib/schemas.js";
+import type { Cita, LegalReference } from "../../lib/legal-types.js";
+import { legalCatalog } from "../../lib/legal-catalog.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { EntityType } from "../check_regulator_status/classifier.js";
@@ -138,7 +140,8 @@ export function createFullEvaluationTool(
 
       const verdict: Verdict =
         verdictOverride ?? deriveVerdict(totalScore);
-      const confianza = computeConfidence(toolsAttempted, toolsSucceeded);
+      const finalSources = dedupeSources(allSources, fetchedAt);
+      const confianza = computeConfianzaFromSources(finalSources);
 
       logger.event("tool.call", {
         toolName: TOOL_NAME,
@@ -149,6 +152,8 @@ export function createFullEvaluationTool(
         verdict,
         confianza,
         totalScore,
+        toolsAttempted,
+        toolsSucceeded,
       });
 
       return {
@@ -158,15 +163,55 @@ export function createFullEvaluationTool(
         stoppedAt,
         shortCircuitReason,
         reasons: allReasons,
-        sources: dedupeSources(allSources, fetchedAt),
+        sources: finalSources,
         breakdown,
         tipoEntidad: detectedTipo,
         situacion,
         recomendaciones: stage5.canales,
+        legalReferences: aggregateLegalReferences(allReasons, allSources),
         disclaimer: DISCLAIMER,
       };
     },
   };
+}
+
+/**
+ * Agrega y dedupea referencias normativas de todas las stages. Recolecta IDs
+ * desde `Source.documentId` y `Reason.legalRefs[]`, los resuelve via el
+ * catálogo, y filtra `citas` a las que efectivamente fueron invocadas
+ * (matching por `Source.articulo`). Lookup puro, determinístico, sin LLM.
+ */
+function aggregateLegalReferences(
+  reasons: ReadonlyArray<Reason>,
+  sources: ReadonlyArray<Source>,
+): Array<LegalReference & { citasInvocadas: Cita[] }> {
+  const ids = new Set<string>();
+  for (const r of reasons) {
+    for (const id of r.legalRefs ?? []) ids.add(id);
+  }
+  for (const s of sources) {
+    if (s.documentId !== undefined) ids.add(s.documentId);
+  }
+  // Por id, recolectar los `articulo` mencionados en sources que apuntan a ese id.
+  const articulosPorId = new Map<string, Set<string>>();
+  for (const s of sources) {
+    if (s.documentId === undefined || s.articulo === undefined) continue;
+    if (!articulosPorId.has(s.documentId)) articulosPorId.set(s.documentId, new Set());
+    articulosPorId.get(s.documentId)!.add(s.articulo);
+  }
+
+  const result: Array<LegalReference & { citasInvocadas: Cita[] }> = [];
+  for (const id of [...ids].sort()) {
+    const entry = legalCatalog.get(id);
+    if (entry === undefined) continue;
+    const articulos = articulosPorId.get(id) ?? new Set();
+    const citasInvocadas: Cita[] = [];
+    for (const cita of entry.citas) {
+      if (articulos.has(cita.articulo)) citasInvocadas.push(cita);
+    }
+    result.push({ ...entry, citasInvocadas });
+  }
+  return result;
 }
 
 interface StageBase {
@@ -365,6 +410,11 @@ async function runEtapa4(
     try {
       regulation = await deps.getApplicableRegulation({ tipoEntidad, situacion });
       sources.push(...regulation.sources);
+      // Phase 3 (Slice O1): propagamos también `regulation.reasons`. Estos
+      // reasons son informativos (weight=0) y portan `legalRefs` con los IDs
+      // del catálogo legal aplicables a (tipoEntidad, situacion). No alteran
+      // el score; sí agregan trazabilidad normativa al output final.
+      reasons.push(...regulation.reasons);
       succeeded += 1;
     } catch (err) {
       logToolError("get_applicable_regulation", err);
@@ -441,9 +491,19 @@ function deriveVerdict(score: number): Verdict {
   return "sin_senales_negativas";
 }
 
-function computeConfidence(attempted: number, succeeded: number): number {
-  if (attempted === 0) return 0;
-  return Math.round((succeeded / attempted) * 100);
+/**
+ * Confianza basada en fuentes externas que respondieron OK, no en si los
+ * handlers de tools tiraron excepción. Refleja al usuario qué proporción
+ * de la red de fuentes oficiales aportó datos vivos a esta evaluación.
+ *
+ * @param sources lista deduplicada de Source — la misma que se expone al cliente.
+ */
+export function computeConfianzaFromSources(
+  sources: ReadonlyArray<Source>,
+): number {
+  if (sources.length === 0) return 0;
+  const ok = sources.filter((s) => s.dataAvailable).length;
+  return Math.round((ok / sources.length) * 100);
 }
 
 function dedupeSources(sources: ReadonlyArray<Source>, fallbackFetchedAt: string): Source[] {

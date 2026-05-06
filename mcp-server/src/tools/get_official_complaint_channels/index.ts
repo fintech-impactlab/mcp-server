@@ -61,6 +61,8 @@ export function createGetOfficialComplaintChannelsTool(
         sources: [
           {
             name: "channels-catalog",
+            documentId: "CL-LEY-19496",
+            articulo: "Artículo 58 — Atribuciones de SERNAC y canales de denuncia",
             fetchedAt,
             dataAvailable: true,
           },

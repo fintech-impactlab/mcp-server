@@ -54,6 +54,7 @@ const fullEvalStubOutput: FullEvaluationOutput = {
   tipoEntidad: "desconocido",
   situacion: "otro",
   recomendaciones: [],
+  legalReferences: [],
   disclaimer: "x",
 };
 

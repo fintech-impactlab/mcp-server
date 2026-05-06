@@ -157,14 +157,81 @@ Ejemplo mínimo invocando `full_evaluation` (el orquestador que aplica todo el m
 const result = await client.callTool({
   name: "full_evaluation",
   arguments: {
-    domain: "ejemplo.cl",
-    rut: "76.000.000-K",
-    categoria: "fintech",
+    input: "ejemplo.cl",
+    text: "Texto opcional (landing/copy/oferta) para análisis del modelo de negocio",
+    situacion: "oferta_inversion_sospechosa",
   },
 });
 ```
 
-La respuesta incluye `score` numérico, `reasons[]` (cada regla activada con su `weight` y `fundamento`), y los facts agregados. Detalle del modelo de scoring en [SCORING.md](SCORING.md).
+La respuesta incluye `totalScore`, `verdict`, `breakdown[]` (etapa por etapa) y un campo top-level **`legalReferences[]`** con las normas exactas que sustentan el resultado:
+
+```jsonc
+{
+  "totalScore": 30,
+  "verdict": "sin_senales_negativas",
+  "legalReferences": [
+    {
+      "id": "CMF-NCG-514-2024",
+      "kind": "ncg",
+      "titulo": "NCG 514/2024 — Sistema de Finanzas Abiertas (SFA) e inscripción en RPSF/PSBI/PSIP",
+      "autoridad": "CMF",
+      "vigenciaDesde": "2024-07-03",
+      "urlOficial": "https://www.cmfchile.cl/normativa/ncg_514_2024.pdf",
+      "localPath": "data/normativas/ncg_514_2024.md",
+      "citas": [/* todas las citas del catálogo */],
+      "citasInvocadas": [
+        {
+          "articulo": "Sección I.C.1 — Inscripción voluntaria de Prestadores de Servicios Basados en Información (PSBI)",
+          "texto": "Conforme señala el inciso primero del artículo 19 de la Ley Fintec",
+          "ubicacion": {
+            "localPath": "data/normativas/ncg_514_2024.md",
+            "lineaInicio": 318,
+            "lineaFin": 318
+          }
+        }
+      ]
+    },
+    { "id": "CL-LEY-21521-art-5", "...": "..." }
+  ]
+}
+```
+
+**El texto verbatim de cada cita está anclado a un archivo del repo** (`data/normativas/<archivo>.md`). El consumidor puede:
+- Mostrar `cita.texto` tal cual (es texto verificable, no generado por LLM).
+- Verificar abriendo el archivo en `cita.ubicacion.localPath` líneas `lineaInicio..lineaFin`.
+- Pedir más contexto leyendo el `.md` directamente (en este repo) o el `urlOficial` (BCN, CMF, SII).
+
+Modelo de scoring detallado: [SCORING.md](SCORING.md). Catálogo de fuentes y formato de citas: [docs/adr/ADR-002-legal-references-catalog.md](docs/adr/ADR-002-legal-references-catalog.md).
+
+### `Reason.kind` — info reasons vs señales
+
+Cada `Reason` lleva un `kind`:
+
+- `"signal"` (default si está ausente) — corresponde a una regla del motor con `weight ≠ 0`. Suma o resta al `score`.
+- `"info"` — `weight: 0`, no afecta el score. Se emite cuando una fuente respondió OK pero ninguna regla matcheó. Sirve para que el output no quede mudo cuando todo es "no se halló nada negativo".
+
+```jsonc
+// Ejemplo: check_blacklist sin hits, todas las fuentes OK
+{
+  "score": 0,
+  "reasons": [
+    {
+      "ruleId": "info.check_blacklist.cmf_alertas_no_match",
+      "kind": "info",
+      "weight": 0,
+      "message": "Sin coincidencias en CMF Alertas Ciudadanas",
+      "fundamento": "Se consultaron los 4 listados oficiales. El input no figura en ninguno."
+    },
+    { "ruleId": "info.check_blacklist.phishtank_no_match", "kind": "info", "weight": 0, "...": "..." }
+  ],
+  "sources": [/* dataAvailable: true en las 3 */]
+}
+```
+
+Para una UI compacta, filtrá `reasons.filter(r => r.kind !== "info")` y mostrá las info reasons en una sección colapsable de "qué se verificó". Para auditoría/LLM downstream, conservalas todas — son evidencia de cobertura.
+
+**Confianza basada en sources.** El campo `confianza` del orquestador se calcula como `round((sources.filter(s => s.dataAvailable).length / sources.length) * 100)`. No mide éxito de los handlers, mide qué proporción de las fuentes externas respondió OK.
 
 ## Errores comunes
 

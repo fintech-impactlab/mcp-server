@@ -128,6 +128,15 @@ async function main(): Promise<void> {
       cache: deps.cache,
       storage: deps.storage,
       fintechileConfig: {},
+      loadSiiGiros: async (query) => {
+        if (!/^\d{1,3}(\.\d{3}){2}-[\dkK]$|^\d{7,9}-[\dkK]$/.test(query.trim())) return [];
+        try {
+          const r = await verifyChileanEntityTool.handler({ rut: query.trim() });
+          return r.giros.map((g) => ({ codigo: g.codigo, descripcion: g.descripcion }));
+        } catch {
+          return [];
+        }
+      },
     });
     registerTool(mcp, regulatorStatusTool);
 

@@ -87,6 +87,42 @@ describe("score — determinismo", () => {
   });
 });
 
+describe("score — propagación de legalRefs", () => {
+  it("copia legalRefs de la regla al ScoreReason cuando el predicate matchea", () => {
+    const facts: Facts = { whitelist: { rpsfStatus: "autorizada" } };
+    const result = score(facts);
+    const r = result.reasons.find((x) => x.ruleId === "whitelist.rpsf_autorizada");
+    assert.ok(r, "regla esperada no matcheó");
+    assert.deepEqual(
+      r.legalRefs,
+      ["CL-LEY-21521-art-5", "CMF-NCG-514-2024", "CMF-RPSF-LISTADO"],
+    );
+  });
+
+  it("omite legalRefs en ScoreReason si la regla no las define", () => {
+    const customRules: Rule[] = [
+      {
+        id: "custom.no_refs",
+        category: "domain",
+        weight: 1,
+        reason: "test",
+        fundamento: "test",
+        predicate: () => true,
+      },
+    ];
+    const result = score({}, customRules);
+    assert.equal("legalRefs" in (result.reasons[0] ?? {}), false);
+  });
+
+  it("preserva legalRefs vacío como array (no undefined)", () => {
+    const facts: Facts = { domain: { ageDays: 3 } };
+    const result = score(facts);
+    const r = result.reasons.find((x) => x.ruleId === "domain.young_lt7d");
+    assert.ok(r);
+    assert.deepEqual(r.legalRefs, []);
+  });
+});
+
 describe("score — exhaustividad de reglas", () => {
   it("hits every rule in the default set with appropriate facts (positive cases)", () => {
     const allHits: Facts[] = [

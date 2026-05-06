@@ -1,5 +1,6 @@
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 
@@ -98,9 +99,55 @@ export function createAnalyzeBusinessModelTool(
       };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: si los 4 detectores no flaguearon nada y/o BCE respondió.
+      const infoReasons = [];
+      const anyFlagFired = promesaIrreal || referidos || vago.detected || ausencia.detected;
+      if (!anyFlagFired) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "detectors_no_flag",
+            "Sin flags de modelo de negocio sospechoso",
+            {
+              fundamento:
+                "Los 4 detectores determinísticos (promesa rentabilidad / referidos / lenguaje vago / ausencia info legal) no encontraron señales en el texto analizado.",
+              legalRefs: ["CL-LEY-19496"],
+            },
+          ),
+        );
+      }
+      if (
+        ratesAvailable &&
+        !promesa.detected
+      ) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "bce_rates_available_no_promise",
+            "TMC vigente disponible; el texto no incluye promesa de rentabilidad",
+            {
+              fundamento:
+                "Se consultó la Tasa Máxima Convencional al Banco Central. El texto no contiene cifras de rentabilidad para contrastar.",
+              legalRefs: ["EXT-BCE-BDE", "CL-LEY-18010"],
+            },
+          ),
+        );
+      }
+
       const sources = [
-        { name: "deterministic-detectors", fetchedAt, dataAvailable: true },
-        { name: "bce-rates", fetchedAt, dataAvailable: ratesAvailable },
+        {
+          name: "deterministic-detectors",
+          documentId: "CL-LEY-19496-art-28",
+          articulo: "Artículo 28 — Publicidad falsa o engañosa",
+          fetchedAt,
+          dataAvailable: true,
+        },
+        {
+          name: "bce-rates",
+          documentId: "EXT-BCE-BDE",
+          fetchedAt,
+          dataAvailable: ratesAvailable,
+        },
       ];
 
       logger.event("tool.call", {
@@ -115,7 +162,7 @@ export function createAnalyzeBusinessModelTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         disclaimer: DISCLAIMER,
         flags: {

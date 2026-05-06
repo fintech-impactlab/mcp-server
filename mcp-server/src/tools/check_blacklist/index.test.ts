@@ -76,7 +76,12 @@ describe("check_blacklist handler — happy path: CMF only", () => {
     assert.equal(response.inBlacklist, false);
     assert.equal(response.hits.length, 0);
     assert.equal(response.score, 0);
-    assert.deepEqual(response.reasons, []);
+    // Política nueva: cmf-alertas respondió OK sin hit → 1 info reason.
+    // phishtank/urlhaus no se consultan para inputs no-URL → 0 info reasons.
+    assert.equal(response.reasons.length, 1);
+    assert.equal(response.reasons[0]?.kind, "info");
+    assert.equal(response.reasons[0]?.weight, 0);
+    assert.equal(response.reasons[0]?.ruleId, "info.check_blacklist.cmf_alertas_no_match");
   });
 
   it("returns hit + matching scoring rule when input matches a CMF entry by URL", async () => {

@@ -15,11 +15,12 @@ const ENTITY_TYPES: ReadonlyArray<EntityType> = [
   "emisor_tarjetas",
   "ecommerce_credito",
   "prestamista_no_regulado",
+  "no_fiscalizada",
   "desconocido",
 ];
 
 describe("channels-matrix — exhaustividad", () => {
-  it("retorna lista no vacía para 7 situaciones × 9 tipos = 63 combinaciones", () => {
+  it("retorna lista no vacía para 7 situaciones × 10 tipos = 70 combinaciones", () => {
     for (const tipo of ENTITY_TYPES) {
       for (const situacion of SITUACIONES) {
         const ids = lookupChannels(tipo, situacion as Situacion);

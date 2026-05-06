@@ -1,5 +1,6 @@
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 
@@ -58,9 +59,72 @@ export function createAnalyzeDomainTool(
       };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: cada fuente OK que no contribuyó una signal rule.
+      const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
+      const fired = (prefix: string): boolean =>
+        [...firedRules].some((id) => id.startsWith(prefix));
+      const infoReasons = [];
+      if (whoisResult.dataAvailable && !fired("domain.young_")) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "whois_verified",
+            ageDays !== null
+              ? `Dominio con ${ageDays} días desde su registro`
+              : "WHOIS respondió pero no expone fecha de creación",
+            {
+              fundamento:
+                "Se consultó WHOIS/RDAP del dominio; antigüedad ≥ 30 días o sin dato → no dispara reglas de dominio joven.",
+              legalRefs: ["EXT-RDAP-RFC-7480"],
+            },
+          ),
+        );
+      }
+      if (
+        sslResult.dataAvailable &&
+        sslResult.classification.sslStatus === "valid" &&
+        !fired("domain.ssl_")
+      ) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "tls_valid",
+            `Certificado SSL válido${
+              sslResult.classification.sslIssuer
+                ? ` emitido por ${sslResult.classification.sslIssuer}`
+                : ""
+            }`,
+            {
+              fundamento:
+                "Handshake TLS exitoso, cadena válida, no autofirmado, no expirado.",
+            },
+          ),
+        );
+      }
+      if (
+        redirectsResult.dataAvailable &&
+        !firedRules.has("domain.too_many_redirects")
+      ) {
+        const hopsCount = redirectsResult.result.hops.length;
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "redirects_clean",
+            hopsCount === 0
+              ? "Sin redirecciones HTTP"
+              : `Cadena de ${hopsCount} ${hopsCount === 1 ? "redirección" : "redirecciones"} (≤ 3)`,
+            {
+              fundamento:
+                "Se siguió la cadena de redirecciones; longitud bajo el umbral de cloaking (≥ 4 hops).",
+            },
+          ),
+        );
+      }
+
       const sources = [
         {
           name: "whois",
+          documentId: "EXT-RDAP-RFC-7480",
           fetchedAt,
           dataAvailable: whoisResult.dataAvailable,
         },
@@ -87,7 +151,7 @@ export function createAnalyzeDomainTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         domain: host,
         domainAgeDays: ageDays,
