@@ -106,6 +106,8 @@ describe("score — exhaustividad de reglas", () => {
       { whitelist: { rpsfStatus: "autorizada" } },
       { whitelist: { rpsfStatus: "en_revision" } },
       { whitelist: { fintechileMembership: true } },
+      { dns: { registrantCountry: "CL" } },
+      { dns: { registrantAnonymized: true } },
       { entity: { siiStatus: "activo" } },
       { entity: { siiStatus: "suspendido" } },
       { entity: { siiStatus: "sin_inicio" } },

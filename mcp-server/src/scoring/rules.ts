@@ -38,11 +38,17 @@ export interface EntityFacts {
   ageMonths?: number;
 }
 
+export interface DnsFacts {
+  registrantCountry?: string | null;
+  registrantAnonymized?: boolean;
+}
+
 export interface Facts {
   domain?: DomainFacts;
   blacklist?: BlacklistFacts;
   whitelist?: WhitelistFacts;
   entity?: EntityFacts;
+  dns?: DnsFacts;
 }
 
 export interface Rule {
@@ -225,6 +231,26 @@ export const rules: ReadonlyArray<Rule> = [
     fundamento:
       "Membresía gremial implica al menos un nivel mínimo de escrutinio entre pares; señal positiva intermedia mientras la Ley Fintech termina de implementarse.",
     predicate: (f) => f.whitelist?.fintechileMembership === true,
+  },
+
+  // ── DNS ────────────────────────────────────────────────────────────────
+  {
+    id: "dns.registrant_pais_chile",
+    category: "dns",
+    weight: 5,
+    reason: "Registrante público con país declarado CL",
+    fundamento:
+      "Que el registrante tenga país CL en WHOIS/RDAP no garantiza legitimidad pero descarta operadores extranjeros opacos; señal positiva débil compatible con un servicio financiero local.",
+    predicate: (f) => f.dns?.registrantCountry === "CL",
+  },
+  {
+    id: "dns.registrant_anonimo",
+    category: "dns",
+    weight: -15,
+    reason: "Registrante WHOIS/RDAP anonimizado vía privacy proxy",
+    fundamento:
+      "Privacidad proxy es legítima en general, pero un proveedor financiero serio publica datos verificables del registrante. Anonimato + servicio financiero = bandera de opacidad.",
+    predicate: (f) => f.dns?.registrantAnonymized === true,
   },
 
   // ── Entity (SII) ───────────────────────────────────────────────────────

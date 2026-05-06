@@ -1,0 +1,38 @@
+{
+  "objectClassName": "domain",
+  "handle": "ejemplo.cl",
+  "ldhName": "ejemplo.cl",
+  "events": [
+    { "eventAction": "registration", "eventDate": "2010-04-15T11:23:40Z" },
+    { "eventAction": "expiration", "eventDate": "2027-04-15T11:23:40Z" }
+  ],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "REG-NIC-12345",
+      "roles": ["registrant"],
+      "vcardArray": [
+        "vcard",
+        [
+          ["version", {}, "text", "4.0"],
+          ["fn", {}, "text", "Empresa Ejemplo S.A."],
+          ["org", {}, "text", "Empresa Ejemplo S.A."],
+          ["adr", { "cc": "CL" }, "text", ["", "", "", "Santiago", "RM", "", "CL"]]
+        ]
+      ]
+    },
+    {
+      "objectClassName": "entity",
+      "handle": "ADM-12345",
+      "roles": ["administrative"],
+      "vcardArray": [
+        "vcard",
+        [
+          ["version", {}, "text", "4.0"],
+          ["fn", {}, "text", "Juan Pérez"],
+          ["email", {}, "text", "juan.perez@ejemplo.cl"]
+        ]
+      ]
+    }
+  ]
+}

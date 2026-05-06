@@ -1,0 +1,22 @@
+{
+  "objectClassName": "domain",
+  "handle": "anonimo.cl",
+  "ldhName": "anonimo.cl",
+  "events": [
+    { "eventAction": "registration", "eventDate": "2026-04-30T00:00:00Z" }
+  ],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "roles": ["registrant"],
+      "remarks": [{ "type": "object redacted due to authorization" }],
+      "vcardArray": [
+        "vcard",
+        [
+          ["version", {}, "text", "4.0"],
+          ["fn", {}, "text", "REDACTED FOR PRIVACY"]
+        ]
+      ]
+    }
+  ]
+}

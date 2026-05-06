@@ -13,6 +13,9 @@ export interface WhoisResult {
   found: boolean;
   creationDate: string | null;
   registrar: string | null;
+  registrant: string | null;
+  registrantCountry: string | null;
+  adminAnonymized: boolean;
   raw: string;
 }
 
@@ -49,6 +52,41 @@ const REGISTRAR_KEYS: ReadonlyArray<string> = [
   "registrar name",
 ];
 
+const REGISTRANT_KEYS: ReadonlyArray<string> = [
+  "registrant",
+  "registrant name",
+  "registrant organisation",
+  "registrant organization",
+];
+
+const REGISTRANT_COUNTRY_KEYS: ReadonlyArray<string> = [
+  "registrant country",
+  "country",
+];
+
+const ADMIN_EMAIL_KEYS: ReadonlyArray<string> = [
+  "admin email",
+  "administrative contact email",
+  "administrative email",
+];
+
+const ANONYMIZED_TOKENS: ReadonlyArray<string> = [
+  "redacted for privacy",
+  "redactado por privacidad",
+  "data redacted",
+  "privacy",
+  "withheld",
+  "domains by proxy",
+  "domainsbyproxy",
+  "whoisguard",
+  "private",
+];
+
+function isAnonymized(value: string): boolean {
+  const lower = value.toLowerCase();
+  return ANONYMIZED_TOKENS.some((token) => lower.includes(token));
+}
+
 const NOT_FOUND_PATTERNS: ReadonlyArray<RegExp> = [
   /^\s*no match for/im,
   /^\s*not found/im,
@@ -57,17 +95,25 @@ const NOT_FOUND_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 export function parseWhoisText(text: string): WhoisResult {
-  if (text.length === 0) {
-    return { found: false, creationDate: null, registrar: null, raw: text };
-  }
+  const empty: WhoisResult = {
+    found: false,
+    creationDate: null,
+    registrar: null,
+    registrant: null,
+    registrantCountry: null,
+    adminAnonymized: false,
+    raw: text,
+  };
+  if (text.length === 0) return empty;
   for (const pattern of NOT_FOUND_PATTERNS) {
-    if (pattern.test(text)) {
-      return { found: false, creationDate: null, registrar: null, raw: text };
-    }
+    if (pattern.test(text)) return empty;
   }
 
   let creationDate: string | null = null;
   let registrar: string | null = null;
+  let registrant: string | null = null;
+  let registrantCountry: string | null = null;
+  let adminAnonymized = false;
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     const idx = line.indexOf(":");
@@ -82,12 +128,25 @@ export function parseWhoisText(text: string): WhoisResult {
     if (registrar === null && REGISTRAR_KEYS.includes(keyRaw)) {
       registrar = value;
     }
+    if (registrant === null && REGISTRANT_KEYS.includes(keyRaw)) {
+      if (!isAnonymized(value)) registrant = value;
+      else adminAnonymized = true;
+    }
+    if (registrantCountry === null && REGISTRANT_COUNTRY_KEYS.includes(keyRaw)) {
+      registrantCountry = value.toUpperCase().slice(0, 2);
+    }
+    if (!adminAnonymized && ADMIN_EMAIL_KEYS.includes(keyRaw) && isAnonymized(value)) {
+      adminAnonymized = true;
+    }
   }
 
   return {
-    found: creationDate !== null || registrar !== null,
+    found: creationDate !== null || registrar !== null || registrant !== null,
     creationDate,
     registrar,
+    registrant,
+    registrantCountry,
+    adminAnonymized,
     raw: text,
   };
 }

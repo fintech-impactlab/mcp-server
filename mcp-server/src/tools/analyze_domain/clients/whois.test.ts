@@ -54,6 +54,28 @@ describe("parseWhoisText", () => {
     assert.equal(result.creationDate, "2024-01-02");
     assert.equal(result.registrar, "GoDaddy.com, LLC");
   });
+
+  it("extrae registrant y registrantCountry (uppercase 2 letras)", () => {
+    const text = "Registrant Name: Empresa Ejemplo S.A.\nRegistrant Country: cl\n";
+    const result = parseWhoisText(text);
+    assert.equal(result.registrant, "Empresa Ejemplo S.A.");
+    assert.equal(result.registrantCountry, "CL");
+    assert.equal(result.adminAnonymized, false);
+  });
+
+  it("marca adminAnonymized cuando el registrant está REDACTED FOR PRIVACY", () => {
+    const text = "Registrant Name: REDACTED FOR PRIVACY\nAdmin Email: REDACTED FOR PRIVACY\n";
+    const result = parseWhoisText(text);
+    assert.equal(result.registrant, null);
+    assert.equal(result.adminAnonymized, true);
+  });
+
+  it("marca adminAnonymized cuando el admin email está bajo Domains By Proxy", () => {
+    const text = "Registrant Name: Empresa X\nAdmin Email: contact@domainsbyproxy.com\n";
+    const result = parseWhoisText(text);
+    assert.equal(result.registrant, "Empresa X");
+    assert.equal(result.adminAnonymized, true);
+  });
 });
 
 describe("fetchWhois", () => {

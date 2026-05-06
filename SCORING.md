@@ -4,7 +4,7 @@
 
 Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-scoring).
 
-**Reglas:** 19.
+**Reglas:** 21.
 
 ## Convenciones
 
@@ -33,6 +33,8 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 | `whitelist.rpsf_autorizada` | whitelist | +30 | Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros) | Estado 'autorizada' bajo Ley 21.521 implica revisión formal CMF aprobada. Es la señal positiva más fuerte de la lista de la CMF. |
 | `whitelist.rpsf_en_revision` | whitelist | +10 | Solicitud presente en RPSF, en revisión por CMF | Período transitorio Ley 21.521: la entidad opera legalmente mientras CMF resuelve. No es garantía pero es señal positiva intermedia (179 autorizadas + 300 en revisión a feb 2025). |
 | `whitelist.fintechile_miembro` | whitelist | +15 | Miembro activo de FinteChile | Membresía gremial implica al menos un nivel mínimo de escrutinio entre pares; señal positiva intermedia mientras la Ley Fintech termina de implementarse. |
+| `dns.registrant_pais_chile` | dns | +5 | Registrante público con país declarado CL | Que el registrante tenga país CL en WHOIS/RDAP no garantiza legitimidad pero descarta operadores extranjeros opacos; señal positiva débil compatible con un servicio financiero local. |
+| `dns.registrant_anonimo` | dns | -15 | Registrante WHOIS/RDAP anonimizado vía privacy proxy | Privacidad proxy es legítima en general, pero un proveedor financiero serio publica datos verificables del registrante. Anonimato + servicio financiero = bandera de opacidad. |
 | `entity.sii_activo` | entity | +10 | Inicio de actividades vigente en el SII | Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. Necesario, no suficiente. |
 | `entity.sii_suspendido` | entity | -30 | Estado 'suspendido' en el SII | Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado. |
 | `entity.sii_sin_inicio` | entity | -50 | Sin inicio de actividades en el SII | Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente. |
@@ -47,6 +49,11 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 - **`blacklist.cmf_apps_creditos_no_reguladas`** (-50): Aparece en CMF — Apps de Créditos No Reguladas
 - **`blacklist.cmf_otras_entidades_no_reguladas`** (-50): Aparece en CMF — Otras Entidades No Reguladas
 - **`blacklist.urlhaus`** (-30): URL reportada en URLhaus
+
+### dns (2 reglas, suma de pesos = -10)
+
+- **`dns.registrant_pais_chile`** (+5): Registrante público con país declarado CL
+- **`dns.registrant_anonimo`** (-15): Registrante WHOIS/RDAP anonimizado vía privacy proxy
 
 ### domain (7 reglas, suma de pesos = -200)
 

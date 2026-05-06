@@ -227,11 +227,11 @@ Sin dependencias. WHOIS + SSL + redirects.
 
 NIC Chile (RDAP si disponible, WHOIS fallback) + WHOIS internacional.
 
-- [ ] **7.1** Cliente NIC Chile.
+- [x] **7.1** Cliente NIC Chile.
   - **AC:** RDAP `https://rdap.nic.cl/domain/<dom>` o WHOIS fallback. `NICError` en fallos. Extrae registrante, contactos públicos, fecha registro.
   - **Verify:** fixture parsea. Diferencia `.cl` vs internacional al elegir cliente.
 
-- [ ] **7.2** Schemas + reglas + handler + tests + trazas.
+- [x] **7.2** Schemas + reglas + handler + tests + trazas.
   - **AC:** reglas `dns.registrant_pais_chile` (+5), `dns.registrant_anonimo` (-15). Output con `registrante`, `pais`, `fechaRegistro`, `contactosAdmin`.
   - **Verify:** `npm test -- check_dns_ownership` verde.
 
