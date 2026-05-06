@@ -91,11 +91,11 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
 
 ## Slice A3 — Web client envía `Authorization`
 
-- [ ] **A3.1** RBAC — sumar `Key Vault Secrets User` a `uai-web-${env}` con scope al secret específico.
+- [x] **A3.1** RBAC — sumar `Key Vault Secrets User` a `uai-web-${env}` con scope al secret específico.
   - **AC:** `infra/modules/web-identity.bicep` (o un módulo nuevo `web-kv-rbac.bicep`) asigna el rol `Key Vault Secrets User` a `uai-web-${env}` con `--scope` apuntando a `<kv-id>/secrets/mcp-api-key-web` (Azure RBAC for Key Vault soporta scope a nivel secret). Si el RBAC granular falla por limitación de Azure, fallback documentado: scope al vault completo con justificación en comentario Bicep.
   - **Verify:** `az role assignment list --assignee <web-uai-principalId> --scope "<kv-id>/secrets/mcp-api-key-web" --query "[].roleDefinitionName" -o tsv` retorna `Key Vault Secrets User`.
 
-- [ ] **A3.2** Bicep — secretRef en `webApp`.
+- [x] **A3.2** Bicep — secretRef en `webApp`.
   - **AC:** `infra/main.bicep` para `module webApp` agrega:
     ```bicep
     secrets: [
@@ -107,15 +107,15 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
     ```
   - **Verify:** post-deploy, `az containerapp show -n ca-web-fintech-${env} --query "properties.template.containers[0].env[?name=='MCP_API_KEY']"` retorna entry con `secretRef`.
 
-- [ ] **A3.3** Web — `app/page.tsx` envía Authorization si la env var existe.
+- [x] **A3.3** Web — `app/page.tsx` envía Authorization si la env var existe.
   - **AC:** el fetch al `/health` (y futuros calls) incluye `Authorization: Bearer ${process.env.MCP_API_KEY}` cuando la env está seteada. Si no está (modo dev local sin auth configurada), no envía el header y loggea warning una vez al boot. La página sigue siendo Server Component con `force-dynamic` y mantiene el comportamiento de "200 con error" si el MCP responde 401/403 o cae.
   - **Verify:** test integración con `MCP_API_KEY` seteada vs no seteada — el primer caso envía header, el segundo no. En el segundo caso, log de warning visible con `pnpm dev`.
 
-- [ ] **A3.4** Smoke test end-to-end.
+- [x] **A3.4** Smoke test end-to-end.
   - **AC:** post-deploy de A3.2/A3.3, abrir `https://ca-web-fintech-${env}-...azurecontainerapps.io/`. La página renderiza el JSON del `/health` del MCP (no error). Query a Log Analytics confirma que un log `tool.call` (cuando lleguen las tools de plan-tools.md) o un log de health-probe atendido provino del clientId `web`.
   - **Verify:** verificación manual del navegador + `az monitor log-analytics query --workspace <log-fintech-${env}-id> --analytics-query "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-mcp-fintech-${env}' | extend log = parse_json(Log_s) | where log.clientId == 'web' | take 10"`.
 
-- [ ] **A3.5** Verificar fallback degradado.
+- [x] **A3.5** Verificar fallback degradado.
   - **AC:** revoke temporal de la key del web (set `revokedAt` en el JSON del secret `mcp-api-keys`) → tras 60s de cache TTL el MCP rechaza con 403 → la web responde 200 con mensaje de error en pantalla (no 5xx). Restore de la key cierra el test.
   - **Verify:** observar HTTP status 200 con body de error en el navegador. Revertir cambios al cerrar.
 
