@@ -37,9 +37,9 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 ## Slice S2 — Bootstrap: subir contenido de `data/` al File Share
 
-- [ ] **S2.1** Script `upload-data-to-share.sh`.
-  - **AC:** [scripts/upload-data-to-share.sh](../scripts/upload-data-to-share.sh) (nuevo). Recibe `<env>`. Lee `storage-account-key` de KV. Ejecuta `az storage file upload-batch` mapeando: `data/*.csv` y `data/*.xlsx` → `snapshots/cmf/`; `data/normativas/` → `normativas/` recursivo (preserva subcarpeta `sii/`). Crea `snapshots/rpsf/.keep` y `audit/.keep` con `az storage file upload`. Idempotente (re-ejecutable sin errores).
-  - **Verify:** `./scripts/upload-data-to-share.sh dev`. `az storage file list --account-name <st> --share-name mcp-data --path normativas --output table` muestra 6 `.md` + 6 `.pdf` + carpeta `sii`. `… --path snapshots/cmf` muestra 4 CSV + 4 XLSX. Re-ejecutar el script sale con código 0.
+- [x] **S2.1** Script `upload-data-to-share.mjs`.
+  - **AC:** [mcp-server/scripts/upload-data-to-share.mjs](../mcp-server/scripts/upload-data-to-share.mjs) (nuevo). Args: `--storage-account <st> --vault <kv> [--data-dir ./data] [--share mcp-data]`. Lee `storage-account-key` de KV. Ejecuta `az storage file upload-batch` para `*.csv` y `*.xlsx` → `snapshots/cmf/`, y `data/normativas/` → `normativas/` recursivo (preserva `sii/`). `az storage directory create` (idempotente, tolera "already exists") para `snapshots/rpsf/` y `audit/`. Cambio vs plan: directorios vacíos en lugar de `.keep` files (`upload` single file falla con `ParentNotFound` si el dir padre no existe; `directory create` es la primitiva correcta).
+  - **Verify (ejecutado 2026-05-06 contra `stfintechdevic66pjdlbzw6`/`mcp-data`):** 8 archivos en `snapshots/cmf` (4 CSV + 4 XLSX), 12 en `normativas` raíz (6 .md + 6 .pdf), 8 en `normativas/sii` (4 .md + 4 .pdf), directorios `audit` y `snapshots/rpsf` creados. Re-ejecución limpia (idempotente).
 
 - [ ] **S2.2** Documentar la sincronización en README.
   - **AC:** [README.md](../README.md) sección "Datos y referencias locales" tiene un bloque "Sincronización al File Share" con: comando del script, qué se sube, cómo agregar nuevas normativas, advertencia de que el File Share es la fuente de verdad en runtime.
@@ -47,7 +47,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 - [ ] **S2.3** Verificar contenido desde dentro del container.
   - **AC:** estructura completa visible en `/app/data` desde el MCP server.
-  - **Verify:** `az containerapp exec -n ca-mcp-fintech-dev -g <rg> --command "sh -c 'find /app/data -type f | sort'"` lista ≥ 24 archivos coincidiendo con la estructura objetivo (8 snapshots + 12 normativas raíz + 8 sii + 2 .keep).
+  - **Verify (parcial):** Cross-check desde Storage API (S2.1 verify) confirma 28 archivos en el layout esperado. Mount RW probado en S1.6. **Pendiente interactivo:** `az containerapp update --min-replicas 1`, luego `az containerapp exec -n ca-mcp-fintech-dev -g oarocha-fintech --command 'find /app/data -type f'` desde tty real (no funciona via harness automatizado por requerir cbreak), luego restaurar min-replicas=0. Esperado: 28 paths.
 
 ---
 
