@@ -9,6 +9,7 @@ import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
 import { registerTool } from "./server/registry.js";
+import { createCheckBlacklistTool } from "./tools/check_blacklist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 
@@ -62,6 +63,19 @@ async function main(): Promise<void> {
     }),
   );
   logger.event("server.tool_registered", { toolName: "explain_law_simple" });
+
+  registerTool(
+    mcp,
+    createCheckBlacklistTool({
+      cache,
+      storage,
+      ...(process.env.PHISHTANK_API_KEY
+        ? { phishtankConfig: { apiKey: process.env.PHISHTANK_API_KEY } }
+        : {}),
+      urlhausConfig: {},
+    }),
+  );
+  logger.event("server.tool_registered", { toolName: "check_blacklist" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

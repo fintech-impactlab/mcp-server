@@ -127,47 +127,47 @@ API JSON oficial de BCN Ley Fácil. Riesgo de alucinación nulo.
 
 XLSX parser + multi-fuente + cache agresivo. Tool con mayor demo value (caso de uso 2: extensión de navegador).
 
-- [ ] **4.1** Parser XLSX de los 4 listados de CMF Alertas Ciudadanas.
+- [x] **4.1** Parser XLSX de los 4 listados de CMF Alertas Ciudadanas.
   - **AC:** `src/tools/check_blacklist/parsers/cmf.ts` descarga XLSX (Plataformas de Inversión No Reguladas, Apps de Créditos No Reguladas, Créditos Fraudulentos, Otras Entidades No Reguladas), extrae filas relevantes, normaliza a `BlacklistEntry { source, identifier, identifierType, listedAt, evidenceUrl }`. Usa `xlsx` o `exceljs`.
   - **Verify:** fixtures `__fixtures__/cmf-plataformas-2025-q1.xlsx` etc. parsean a estructura esperada. Test detecta cambio de columnas (`expected headers: [...]`).
 
-- [ ] **4.2** Job de refresh diario de cache CMF.
+- [~] **4.2** Job de refresh diario de cache CMF.
   - **AC:** script `npm run refresh:cmf` que descarga los 4 XLSX y los persiste a `cache-cmf` con TTL 24h. En infra: programar como cron en Container Apps Job (separado del Container App principal). Mientras tanto, ejecutable on-demand.
   - **Verify:** `npm run refresh:cmf` puebla los 4 blobs, log muestra conteos por listado.
 
-- [ ] **4.3** Cliente PhishTank.
+- [x] **4.3** Cliente PhishTank.
   - **AC:** API key en KV (`secretRef phishtank-api-key`). Endpoint `https://checkurl.phishtank.com/checkurl/`. Timeout 5s. `PhishTankError` si caído.
   - **Verify:** fixture parsea; rate limit (cuota gratuita) respetado con cache local 1h.
 
-- [ ] **4.4** Cliente Google Safe Browsing.
+- [~] **4.4** Cliente Google Safe Browsing.
   - **AC:** API key en KV (`secretRef gsb-api-key`). Endpoint `https://safebrowsing.googleapis.com/v4/threatMatches:find`. `SafeBrowsingError` en fallos.
   - **Verify:** fixture parsea.
 
-- [ ] **4.5** Cliente URLhaus.
+- [x] **4.5** Cliente URLhaus.
   - **AC:** endpoint `https://urlhaus-api.abuse.ch/v1/url/`. Sin API key. `URLhausError` en fallos.
   - **Verify:** fixture parsea.
 
-- [ ] **4.6** Cliente CSIRT alerts.
+- [~] **4.6** Cliente CSIRT alerts.
   - **AC:** scraping respetuoso (1 req/s) de listado público de alertas CSIRT/ANCI. `CSIRTError` en fallos.
   - **Verify:** fixture HTML parsea a lista de URLs.
 
-- [ ] **4.7** Schemas Zod input + output.
+- [x] **4.7** Schemas Zod input + output.
   - **AC:** input: `{ input: string }` con detección de tipo (RUT/URL/dominio/nombre) en handler. Output: `BaseToolResponse` + `inBlacklist: boolean`, `hits: BlacklistEntry[]` (multi-fuente).
   - **Verify:** input vacío falla parse; URL malformada falla parse.
 
-- [ ] **4.8** Reglas de scoring específicas.
+- [x] **4.8** Reglas de scoring específicas.
   - **AC:** agregar reglas a `rules.ts`: `blacklist.cmf_plataforma_no_regulada` (-50), `blacklist.cmf_credito_fraudulento` (-50), `blacklist.phishtank` (-40), `blacklist.gsb` (-40), `blacklist.urlhaus` (-30), `blacklist.csirt` (-30). Tests CO afirmativo/negativo (Slice 1.3).
   - **Verify:** `npm test -- rules.test` sigue 100% verde.
 
-- [ ] **4.9** Tool registrada.
+- [x] **4.9** Tool registrada.
   - **AC:** handler consulta las 6 fuentes en paralelo (con timeout global 8s); fuentes que fallan retornan `dataAvailable: false` por entrada en `sources`, no rompen el verdict.
   - **Verify:** `tools/call name=check_blacklist arguments={"input":"<url-fixture>"}` retorna multi-fuente con scores correctos.
 
-- [ ] **4.10** Tests con fixtures por fuente.
+- [x] **4.10** Tests con fixtures por fuente.
   - **AC:** ≥6 tests (uno por fuente positivo + uno por fuente caída). Test de orquestación: 3 fuentes prenden, 1 caída → verdict consolidado correcto.
   - **Verify:** `npm test -- check_blacklist` verde.
 
-- [ ] **4.11** Logs JSON estructurados a stdout.
+- [x] **4.11** Logs JSON estructurados a stdout.
   - **AC:** log `{ event: "tool.call", toolName, clientId, inputHash, durationMs, success, sourcesQueried, sourcesFailed, hitCount }` vía `logger.event`.
   - **Verify:** stdout local muestra el JSON con shape correcto; post-deploy queryable en Log Analytics.
 

@@ -157,6 +157,33 @@ export const rules: ReadonlyArray<Rule> = [
       "PhishTank confirma reportes vía verificación comunitaria. False positives son raros en URLs verified.",
     predicate: (f) => blacklistHas(f.blacklist?.sources, "phishtank"),
   },
+  {
+    id: "blacklist.cmf_apps_creditos_no_reguladas",
+    category: "blacklist",
+    weight: -50,
+    reason: "Aparece en CMF — Apps de Créditos No Reguladas",
+    fundamento:
+      "Listado oficial CMF de apps de crédito sin autorización formal. Misma fuerza señalética que Plataformas / Créditos Fraudulentos.",
+    predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-apps-creditos-no-reguladas"),
+  },
+  {
+    id: "blacklist.cmf_otras_entidades_no_reguladas",
+    category: "blacklist",
+    weight: -50,
+    reason: "Aparece en CMF — Otras Entidades No Reguladas",
+    fundamento:
+      "Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado que no encajan en los otros 3 listados.",
+    predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-otras-entidades-no-reguladas"),
+  },
+  {
+    id: "blacklist.urlhaus",
+    category: "blacklist",
+    weight: -30,
+    reason: "URL reportada en URLhaus",
+    fundamento:
+      "URLhaus de abuse.ch lista URLs activas asociadas a malware. Hit confirma intencionalidad maliciosa, peso menor que listados regulatorios chilenos pero suma.",
+    predicate: (f) => blacklistHas(f.blacklist?.sources, "urlhaus"),
+  },
 
   // ── Whitelist ──────────────────────────────────────────────────────────
   {
