@@ -123,34 +123,27 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
 
 ---
 
-## Slice A4 — Telemetría + procedimiento de rotación
+## Slice A4 — ~~Telemetría + procedimiento de rotación~~ — **CERRADO SIN EJECUTAR**
 
-- [ ] **A4.1** `clientId` en payload del log `tool.call`.
-  - **AC:** cuando llegue Slice 0/Slice 2 de [plan-tools.md](plan-tools.md), el handler de tools lee `req.auth.clientId` y lo agrega al payload del log JSON `tool.call`. Por ahora (sin tools reales todavía), agregar la convención al `SPEC.md` § 6.4 para que las tools la sigan desde su primera implementación.
-  - **Verify:** SPEC actualizado. Test placeholder en `mcp-server/src/server/auth/__tests__/instrumentation.test.ts` que verifica que el middleware deja `req.auth` accesible para handlers downstream.
+> Decisión del usuario: no usar telemetría ni App Insights por ahora. La auth queda como **funcionalidad operable** sin las piezas de telemetría / docs / script de rotación que originalmente cubrían este slice.
+>
+> Cualquier nuevo cliente (extensión, app SMS) sigue el patrón establecido por A2 + A3: secret separado en KV con tag `purpose=mcp-bearer`, RBAC scoped al secret específico (Bicep), env var `MCP_API_KEY` en su Container App vía `secretRef`.
+>
+> Para rotar una key manualmente sin downtime, el procedimiento operativo de bolsillo es: editar el JSON de `mcp-api-keys` en KV agregando una nueva entry (vieja sigue activa) → esperar 60 s (TTL del cache del `KeyStore`) o `az containerapp revision restart -n ca-mcp-fintech-<env>` → si el cliente es `web`, también actualizar `mcp-api-key-web` y restartear `ca-web` → marcar la vieja con `revokedAt` y volver a pushear el JSON. Cero downtime.
 
-- [ ] **A4.2** Log `auth.failure` con campos consistentes.
-  - **AC:** ya emitido en A1.5; este slice lo documenta en `SPEC.md` § 8 ("Always do") como obligación: "Cada fallo de auth emite log JSON `{ event: 'auth.failure', reason, inputHash, ip? }`. No incluye plaintext del header."
-  - **Verify:** SPEC actualizado.
+- [~] **A4.1** ~~`clientId` en payload del log `tool.call`~~ — **NO APLICA POR AHORA.**
+  - **Reabrir si:** se decide usar telemetría / Log Analytics / App Insights. La info ya queda accesible en `res.locals.auth` (set por `requireBearer` en A1.4) — un futuro handler de tool puede leerla y agregarla al log con cero refactor.
 
-- [ ] **A4.3** `docs/KEY_ROTATION.md`.
-  - **AC:** procedimiento manual paso a paso:
-    1. Generar nueva key con `node scripts/generate-key.mjs`. Output: `{ plaintext, hash, keyId }`.
-    2. Leer secret actual con `az keyvault secret show --name mcp-api-keys --vault-name <kv> --query value -o tsv > /tmp/keys.json`.
-    3. Editar `/tmp/keys.json`: agregar nueva entry para el clientId. **No** marcar la vieja con `revokedAt` todavía.
-    4. Push: `az keyvault secret set --vault-name <kv> --name mcp-api-keys --value "$(cat /tmp/keys.json)"`.
-    5. Esperar 60s (TTL del cache en KeyStore) o `az containerapp revision restart` para refresh inmediato.
-    6. Si el cliente es `web`: `az keyvault secret set --vault-name <kv> --name mcp-api-key-web --value <plaintext-nuevo>` y `az containerapp revision restart -n ca-web-fintech-${env}`.
-    7. Verificar telemetría: el log `tool.call` con el `keyId` nuevo aparece en Log Analytics (o, en bootstrap, simplemente confirmar 200 con `curl -H "Authorization: Bearer <plaintext-nuevo>"`).
-    8. Revocar la vieja: editar JSON, agregar `revokedAt: <iso>` a la entry vieja, push otra vez.
-    9. Esperar 60s y confirmar que la vieja ya no autoriza.
-  - **Verify:** ejecutar el proc en dev contra una key dummy. Documentar tiempos reales en el doc.
+- [~] **A4.2** ~~Log `auth.failure` con campos consistentes~~ — **NO APLICA POR AHORA.**
+  - **Estado real:** el log `auth.failure` ya se emite por `requireBearer` (A1.5) con shape `{ event, reason, inputHash, ip? }` a stdout. No se persiste a ningún sink hoy (CAE con `appLogsConfiguration: null` por decisión de infra Slice 2). Reabrir si se reactiva el sink de logs.
 
-- [ ] **A4.4** Script `pnpm rotate-key <clientId>` (opcional).
-  - **AC:** `mcp-server/scripts/rotate-key.mjs` automatiza A4.3 pasos 1-4. Imprime el plaintext nuevo y un comando sugerido para A4.3.6 (que se hace manual porque toca otro Container App). Soporta `--revoke <keyId>` para forzar revocación inmediata.
-  - **Verify:** ejecutar `pnpm rotate-key dev` en dev. Confirmar que la nueva key autoriza en <60s y la vieja deja de autorizar después del `--revoke`.
+- [~] **A4.3** ~~`docs/KEY_ROTATION.md`~~ — **NO APLICA POR AHORA.**
+  - **Reemplazo:** el procedimiento de rotación de bolsillo está documentado en este mismo bloque (arriba). Promover a `docs/KEY_ROTATION.md` cuando se rote por primera vez en producción y se quiera consolidar tiempos reales.
 
-> ⛳ **Slice A4 cierra** la auth como funcionalidad operable. Cualquier nuevo cliente (extensión, app SMS) sigue el mismo patrón: secret separado en KV con tag `purpose=mcp-bearer`, RBAC scoped, env var `MCP_API_KEY` en su Container App.
+- [~] **A4.4** ~~Script `pnpm rotate-key <clientId>` (opcional)~~ — **NO APLICA POR AHORA.**
+  - **Reabrir si:** la rotación manual con `az` se vuelve costosa o frecuente.
+
+> ⛳ **Slice A4 cerrado.** El stack de auth queda en su forma mínima viable: bearer key per cliente, hash en KV, env injection vía secretRef, RBAC scoped, fail-closed al boot, logs JSON a stdout. Lo que NO está hoy: persistencia de logs, dashboards, alertas, automatización de rotación.
 
 ---
 
