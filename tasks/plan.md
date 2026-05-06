@@ -12,7 +12,8 @@ Aterrizar el spec de infra Azure (sección [Infra Azure](/Users/afroxstudio/.cla
 - Containers: `mcp-server` (Node + TypeScript + `@modelcontextprotocol/sdk`) y `web` (Next.js)
 - Registry: ACR Basic
 - Secrets: Key Vault con managed identity (zero secrets en env vars)
-- Cache: Storage Blob (3 containers: `cache-cmf`, `cache-rpsf`, `audit`)
+- Persistencia: Azure Files SMB volume `mcp-data` montado en `/app/data` (ver [ADR-001](../docs/adr/ADR-001-azure-files-volume-vs-blob.md))
+- Cache: in-memory por réplica (default); blob containers `cache-cmf`/`cache-rpsf`/`audit` quedan dormant para reactivación futura
 - Observabilidad: Log Analytics + Application Insights
 - CI/CD: GitHub Actions con OIDC federated credentials
 

@@ -113,14 +113,14 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 ## Slice S5 — Documentación y ADR
 
-- [ ] **S5.1** Escribir ADR-001.
-  - **AC:** [docs/adr/ADR-001-azure-files-volume-vs-blob.md](../docs/adr/ADR-001-azure-files-volume-vs-blob.md) (nuevo) con secciones: Status (Accepted), Context (decisión previa SPEC §3.7 + por qué cambia), Decision (Azure Files SMB montado en `/app/data`, key en KV), Consequences (positivas: una fuente de verdad, semántica fs; negativas: account key como secret, dependencia de SMB en CAE), Alternatives considered (Blob containers, NFS, EmptyDir).
-  - **Verify:** ADR aprobado por el dueño técnico (firma o PR review).
+- [x] **S5.1** Escribir ADR-001.
+  - **AC:** [docs/adr/ADR-001-azure-files-volume-vs-blob.md](../docs/adr/ADR-001-azure-files-volume-vs-blob.md) creado. Secciones: Status (Accepted), Context (decisión previa + qué cambió, incluyendo la señal del revert `b87c2d9`), Decision (File Share activo + blob dormant), Consequences (positivas/negativas/neutrales), Alternatives (Blob-only, NFS, EmptyDir, eliminación total), Implementación (5 slices con commits), Referencias.
+  - **Verify:** archivo renderiza con encabezado y links válidos. ADR-001 referenciado desde SPEC.md §2/§3.6/§3.7 y desde tasks/plan.md.
 
-- [ ] **S5.2** Actualizar README.
-  - **AC:** [README.md](../README.md) sección "Datos y referencias locales" describe: estructura del File Share, comando de bootstrap, dónde queda montado en runtime, cómo agregar normativas/snapshots nuevos, link a ADR-001.
-  - **Verify:** sección renderiza ok en GitHub.
+- [x] **S5.2** Actualizar README.
+  - **AC:** [README.md](../README.md) sección "Datos y referencias locales" cierra con un blockquote que linkea al ADR-001 y resume la decisión convergente (File Share activo + blob dormant). Sección de bootstrap (S2.2) ya documenta estructura, comandos y cómo agregar normativas.
+  - **Verify:** link relativo `docs/adr/ADR-001-azure-files-volume-vs-blob.md` resuelve correcto desde la raíz del repo.
 
-- [ ] **S5.3** Actualizar `tasks/plan.md` (top-level).
-  - **AC:** [tasks/plan.md](plan.md) líneas ~14-15: línea "Cache: Storage Blob (3 containers…)" → "Storage: Azure Files SMB volume `/app/data` (1 share `mcp-data`)". Slice 3 del plan top-level se actualiza si menciona los containers.
-  - **Verify:** `grep -n "cache-cmf\|cache-rpsf" tasks/plan.md` no retorna nada.
+- [x] **S5.3** Actualizar `tasks/plan.md` (top-level).
+  - **AC:** [tasks/plan.md](plan.md) línea 15 reemplazada por dos líneas: una declarando el File Share como persistencia activa (con link al ADR-001) y otra explicando que los blob containers quedan dormant para reactivación futura.
+  - **Verify:** `grep -n "Storage Blob (3 containers" tasks/plan.md` no retorna nada (frase original eliminada).

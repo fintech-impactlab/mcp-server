@@ -515,7 +515,7 @@ node mcp-server/scripts/upload-data-to-share.mjs \
 
 Ambos scripts son idempotentes — re-correrlos no genera churn. Para agregar una normativa nueva: copiar el PDF + el `.md` derivado a `data/normativas/` (o `data/normativas/sii/`) y volver a correr el `upload-data-to-share.mjs`. Para refrescar snapshots CMF: descargar el XLSX nuevo, regenerar el CSV con el script correspondiente, y re-subir.
 
-> **Decisión arquitectónica:** ver el ADR pendiente en [`docs/adr/`](docs/adr/) (S5). En resumen: File Share SMB en lugar de Blob Storage para tener semántica de filesystem y una sola fuente de verdad.
+> **Decisión arquitectónica:** [ADR-001 — Azure Files SMB volume como persistencia activa, blob containers dormant](docs/adr/ADR-001-azure-files-volume-vs-blob.md). Resumen: File Share SMB es la fuente de verdad runtime; los containers blob (`cache-cmf`/`cache-rpsf`/`audit`) quedan aprovisionados pero sin role assignment, listos para reactivar si un tool futuro requiere cache distribuido.
 
 ---
 
