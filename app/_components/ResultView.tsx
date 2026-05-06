@@ -1,4 +1,4 @@
-import type { EvaluationResult, ToolOutcome } from "@/lib/mcp-client";
+import type { EvaluationResult, ToolOutcome, ToolResponse } from "@/lib/mcp-client";
 
 const STAGE_LABEL: Record<string, string> = {
   screening: "Screening rápido",
@@ -19,6 +19,107 @@ const TOOL_LABEL: Record<string, string> = {
   analyze_business_model: "analyze_business_model",
   full_evaluation: "full_evaluation",
 };
+
+type AnalyzeDomainData = ToolResponse & {
+  domain?: string;
+  domainAgeDays?: number;
+  creationDate?: string;
+  registrar?: string;
+  sslStatus?: string;
+  sslIssuer?: string;
+  redirects?: string[];
+  finalUrl?: string;
+};
+
+type CheckBlacklistData = ToolResponse & {
+  inBlacklist?: boolean;
+  hits?: Array<{ source: string; listedAs?: string; addedAt?: string }>;
+};
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</span>
+      <span className="text-sm">{value}</span>
+    </div>
+  );
+}
+
+function AnalyzeDomainExtras({ data }: { data: AnalyzeDomainData }) {
+  const items: Array<[string, React.ReactNode]> = [];
+  if (data.domain) items.push(["Dominio", <span className="font-mono">{data.domain}</span>]);
+  if (data.domainAgeDays !== undefined) {
+    const years = (data.domainAgeDays / 365).toFixed(1);
+    items.push(["Edad", `${data.domainAgeDays.toLocaleString("es-CL")} días (~${years} años)`]);
+  }
+  if (data.creationDate) items.push(["Registrado", data.creationDate]);
+  if (data.registrar) items.push(["Registrar", data.registrar]);
+  if (data.sslStatus) {
+    items.push([
+      "SSL",
+      <span className={data.sslStatus === "valid" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
+        {data.sslStatus}
+        {data.sslIssuer ? ` · ${data.sslIssuer}` : ""}
+      </span>,
+    ]);
+  }
+  if (data.finalUrl) items.push(["URL final", <span className="font-mono break-all text-xs">{data.finalUrl}</span>]);
+  if (data.redirects && data.redirects.length > 0) {
+    items.push(["Redirecciones", `${data.redirects.length}`]);
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-3 grid grid-cols-1 gap-3 rounded-md bg-zinc-50 p-3 dark:bg-zinc-900 sm:grid-cols-2">
+      {items.map(([k, v], i) => (
+        <Field key={i} label={k} value={v} />
+      ))}
+    </div>
+  );
+}
+
+function CheckBlacklistExtras({ data }: { data: CheckBlacklistData }) {
+  if (data.inBlacklist === undefined) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-md bg-zinc-50 p-3 dark:bg-zinc-900">
+      <div className="flex items-center gap-2 text-sm">
+        <span
+          className={`rounded-md px-2 py-0.5 text-xs font-medium ${
+            data.inBlacklist
+              ? "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
+              : "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          }`}
+        >
+          {data.inBlacklist ? "En lista negra" : "Sin coincidencias"}
+        </span>
+        <span className="text-xs text-zinc-500">
+          {data.hits?.length ?? 0} {data.hits?.length === 1 ? "hit" : "hits"}
+        </span>
+      </div>
+      {data.hits && data.hits.length > 0 && (
+        <ul className="flex flex-col gap-1 text-xs">
+          {data.hits.map((h, i) => (
+            <li key={i} className="font-mono">
+              <span className="text-zinc-500">{h.source}</span>
+              {h.listedAs ? ` · ${h.listedAs}` : ""}
+              {h.addedAt ? ` · ${h.addedAt}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ToolExtras({ outcome }: { outcome: ToolOutcome }) {
+  if (!outcome.ok || !outcome.data) return null;
+  if (outcome.tool === "analyze_domain") {
+    return <AnalyzeDomainExtras data={outcome.data as AnalyzeDomainData} />;
+  }
+  if (outcome.tool === "check_blacklist") {
+    return <CheckBlacklistExtras data={outcome.data as CheckBlacklistData} />;
+  }
+  return null;
+}
 
 function scoreColor(score: number): string {
   if (score <= -40) return "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200";
@@ -73,6 +174,8 @@ function ToolCard({ outcome }: { outcome: ToolOutcome }) {
         <p className="mt-2 text-sm font-medium">{data.verdict}</p>
       )}
 
+      <ToolExtras outcome={outcome} />
+
       {data.reasons.length > 0 && (
         <ul className="mt-3 flex flex-col gap-2">
           {data.reasons.map((r, i) => (
@@ -98,23 +201,32 @@ function ToolCard({ outcome }: { outcome: ToolOutcome }) {
       )}
 
       {data.sources.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-          {data.sources.map((s, i) => (
-            <span key={`${s.name}-${i}`} className="inline-flex items-center gap-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+            {data.sources.filter((s) => s.dataAvailable).length} / {data.sources.length} fuentes disponibles
+          </span>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
+            {data.sources.map((s, i) => (
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  s.dataAvailable ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-              />
-              {s.url ? (
-                <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-mono underline">
-                  {s.name}
-                </a>
-              ) : (
-                <span className="font-mono">{s.name}</span>
-              )}
-            </span>
-          ))}
+                key={`${s.name}-${i}`}
+                className="inline-flex items-center gap-1.5"
+                title={s.dataAvailable ? "fuente OK" : "fuente sin respuesta o sin credencial"}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    s.dataAvailable ? "bg-emerald-500" : "bg-amber-500"
+                  }`}
+                />
+                {s.url ? (
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-mono underline">
+                    {s.name}
+                  </a>
+                ) : (
+                  <span className="font-mono">{s.name}</span>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
