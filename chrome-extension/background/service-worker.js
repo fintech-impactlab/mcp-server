@@ -57,7 +57,7 @@ async function initSession() {
   await mcpPost('initialize', {
     protocolVersion: '2024-11-05',
     capabilities: {},
-    clientInfo: { name: 'escudo-financiero', version: '2.0.0' }
+    clientInfo: { name: 'escudo-financiero', version: '2.1.0' }
   });
 }
 
@@ -118,40 +118,78 @@ function updateBadge(tabId, analysis) {
   chrome.action.setTitle({ tabId, title: `Escudo Financiero — Score: ${analysis.score}/100` });
 }
 
-// ── Score/verdict mapping ──────────────────────────────────────────────────
+// ── Nivel / verdict mapping (compatibilidad MCP nuevo y legacy) ────────────
 
-function normalizeScore(totalScore) {
-  // MCP totalScore: roughly -100..+100 → popup 0..100
-  return Math.round(Math.max(0, Math.min(100, (totalScore + 100) / 2)));
+// Cuando el MCP retorna `nivel` (1-5), se prefiere sobre `verdict` legacy.
+// El score 0..100 del popup se deriva del nivel para que el ring del semáforo
+// coincida con la etiqueta. El `totalScore` crudo del MCP queda visible en
+// detalles técnicos.
+
+const NIVEL_TO_SCORE = { 1: 10, 2: 30, 3: 50, 4: 75, 5: 95 };
+const NIVEL_TO_COLOR = {
+  1: 'red',
+  2: 'orange',
+  3: 'yellow',
+  4: 'green-pale',
+  5: 'green'
+};
+const NIVEL_TO_TITULO = {
+  1: 'Crítico: no entregues datos',
+  2: 'Riesgoso: revisa antes de continuar',
+  3: 'Neutro: avanza con cautela',
+  4: 'Confiable',
+  5: 'Muy confiable'
+};
+const NIVEL_TO_RECOMENDACION = {
+  1: 'No entregues datos personales ni realices transacciones en este sitio.',
+  2: 'Hay señales negativas significativas. Verifica por canales oficiales antes de operar.',
+  3: 'Hay señales menores. Verifica antes de entregar datos o dinero.',
+  4: 'Sin señales negativas relevantes. Confirma de todos modos por canales oficiales.',
+  5: 'Señales convergentes de legitimidad. Procede con precaución normal.'
+};
+
+const VERDICT_TO_NIVEL = {
+  alto_riesgo: 2,
+  riesgo_medio: 3,
+  sin_senales_negativas: 4
+};
+
+function resolveNivel(mcp) {
+  if (typeof mcp.nivel === 'number' && mcp.nivel >= 1 && mcp.nivel <= 5) return mcp.nivel;
+  return VERDICT_TO_NIVEL[mcp.verdict] ?? 3;
 }
 
-function scoreToColor(score) {
-  if (score >= 75) return 'green';
-  if (score >= 55) return 'green-pale';
-  if (score >= 40) return 'yellow';
-  if (score >= 25) return 'orange';
-  return 'red';
+function normalizeScore(mcp) {
+  const nivel = resolveNivel(mcp);
+  return NIVEL_TO_SCORE[nivel] ?? 50;
 }
 
-function verdictToTitulo(verdict) {
-  const map = {
-    alto_riesgo: 'Alto riesgo detectado',
-    riesgo_medio: 'Señales de alerta',
-    sin_senales_negativas: 'Sin señales negativas'
-  };
-  return map[verdict] || 'Análisis completado';
+function nivelToColor(nivel) {
+  return NIVEL_TO_COLOR[nivel] || 'yellow';
+}
+
+function nivelToTitulo(mcp, nivel) {
+  return mcp.etiqueta || NIVEL_TO_TITULO[nivel] || 'Análisis completado';
+}
+
+function escalaLabel(escala) {
+  if (escala === 'cmf') return 'Empresa que debería estar regulada por la CMF';
+  if (escala === 'no_cmf') return 'Empresa fuera del perímetro CMF';
+  return null;
 }
 
 function buildResumen(mcp) {
-  const topReasons = (mcp.reasons || []).slice(0, 2).map(r => r.message).filter(Boolean);
+  const topReasons = (mcp.reasons || [])
+    .filter(r => r.kind !== 'info')
+    .slice(0, 2)
+    .map(r => r.message)
+    .filter(Boolean);
   if (topReasons.length) return topReasons.join('. ') + '.';
   return `Análisis completado con ${mcp.confianza ?? 0}% de confianza.`;
 }
 
-function buildRecomendacion(verdict) {
-  if (verdict === 'alto_riesgo') return 'No entregues datos personales ni realices transacciones en este sitio.';
-  if (verdict === 'riesgo_medio') return 'Verifica la identidad de la empresa antes de continuar.';
-  return 'Procede con precaución normal.';
+function buildRecomendacion(nivel) {
+  return NIVEL_TO_RECOMENDACION[nivel] || 'Procede con precaución normal.';
 }
 
 // ── Main analysis ──────────────────────────────────────────────────────────
@@ -185,18 +223,27 @@ async function analyzeURL(tabId, url, domain, pageData) {
       situacion
     });
 
-    const score = normalizeScore(mcp.totalScore ?? 0);
-    const color = scoreToColor(score);
+    const nivel = resolveNivel(mcp);
+    const score = normalizeScore(mcp);
+    const color = nivelToColor(nivel);
 
     const analysis = {
       score,
       color,
-      titulo: verdictToTitulo(mcp.verdict),
+      titulo: nivelToTitulo(mcp, nivel),
+      escalaLabel: escalaLabel(mcp.escala),
       resumen: buildResumen(mcp),
-      razones: (mcp.reasons || []).map(r => r.message).filter(Boolean),
-      recomendacion: buildRecomendacion(mcp.verdict),
+      razones: (mcp.reasons || [])
+        .filter(r => r.kind !== 'info')
+        .map(r => r.message)
+        .filter(Boolean),
+      recomendacion: buildRecomendacion(nivel),
       mcp_details: {
         verdict: mcp.verdict,
+        nivel,
+        etiqueta: mcp.etiqueta ?? NIVEL_TO_TITULO[nivel] ?? null,
+        escala: mcp.escala ?? null,
+        requiereCMF: mcp.requiereCMF ?? null,
         confianza: mcp.confianza ?? 0,
         totalScore: mcp.totalScore ?? 0,
         stoppedAt: mcp.stoppedAt ?? null,
@@ -212,7 +259,7 @@ async function analyzeURL(tabId, url, domain, pageData) {
     await saveToCache(domain, analysis);
     chrome.storage.session.set({ [`current:${tabId}`]: analysis });
 
-    if (score < 20) {
+    if (nivel === 1) {
       chrome.tabs.sendMessage(tabId, { type: 'SHOW_WARNING', payload: analysis }).catch(() => {});
     }
 

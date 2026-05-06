@@ -456,6 +456,13 @@ body {
   font-weight: var(--fw-medium);
   line-height: var(--lh-snug);
 }
+.cc-verdict-escala {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  opacity: 0.7;
+  letter-spacing: 0.005em;
+}
 
 .cc-hero-meta {
   margin-top: var(--sp-6);

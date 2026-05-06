@@ -64,6 +64,17 @@ function renderMcpDetails(mcp) {
     content.appendChild(row);
   });
 
+  if (typeof mcp.nivel === 'number') {
+    const nivelCls = mcp.nivel <= 2 ? 'bad' : mcp.nivel === 3 ? 'warn' : 'ok';
+    const labelTxt = mcp.etiqueta ? `${mcp.nivel}/5 — ${mcp.etiqueta}` : `${mcp.nivel}/5`;
+    addRow(content, 'Nivel de confianza', labelTxt, nivelCls);
+  }
+
+  if (mcp.escala) {
+    const escalaTxt = mcp.escala === 'cmf' ? 'CMF (regulada)' : 'No-CMF (general)';
+    addRow(content, 'Escala aplicada', escalaTxt, '');
+  }
+
   if (mcp.tipoEntidad) {
     addRow(content, 'Tipo entidad', mcp.tipoEntidad, '');
   }
@@ -156,7 +167,10 @@ function showResult(analysis) {
   animateScore(analysis.score ?? 50);
 
   document.getElementById('titulo-badge').textContent = analysis.titulo || 'Análisis completado';
-  document.getElementById('resumen-text').textContent = analysis.resumen || '';
+  const resumenText = analysis.escalaLabel
+    ? `${analysis.escalaLabel}. ${analysis.resumen || ''}`.trim()
+    : (analysis.resumen || '');
+  document.getElementById('resumen-text').textContent = resumenText;
   document.getElementById('recomendacion-text').textContent = analysis.recomendacion || '';
 
   renderRazones(analysis.razones);
