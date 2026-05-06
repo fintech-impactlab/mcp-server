@@ -111,6 +111,7 @@ describe("score — exhaustividad de reglas", () => {
       { entity: { siiStatus: "activo" } },
       { entity: { siiStatus: "suspendido" } },
       { entity: { siiStatus: "sin_inicio" } },
+      { entity: { ageMonths: 3 } }, // entity.antiguedad_lt6m
     ];
     const matchedIds = new Set<string>();
     for (const facts of allHits) {

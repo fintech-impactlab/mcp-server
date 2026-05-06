@@ -281,4 +281,16 @@ export const rules: ReadonlyArray<Rule> = [
       "Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente.",
     predicate: (f) => f.entity?.siiStatus === "sin_inicio",
   },
+  {
+    id: "entity.antiguedad_lt6m",
+    category: "entity",
+    weight: -15,
+    reason: "Empresa con menos de 6 meses desde inicio de actividades",
+    fundamento:
+      "Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria.",
+    predicate: (f) => {
+      const months = f.entity?.ageMonths;
+      return typeof months === "number" && months >= 0 && months < 6;
+    },
+  },
 ] as const;

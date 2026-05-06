@@ -4,7 +4,7 @@
 
 Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-scoring).
 
-**Reglas:** 21.
+**Reglas:** 22.
 
 ## Convenciones
 
@@ -38,6 +38,7 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 | `entity.sii_activo` | entity | +10 | Inicio de actividades vigente en el SII | Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. Necesario, no suficiente. |
 | `entity.sii_suspendido` | entity | -30 | Estado 'suspendido' en el SII | Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado. |
 | `entity.sii_sin_inicio` | entity | -50 | Sin inicio de actividades en el SII | Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente. |
+| `entity.antiguedad_lt6m` | entity | -15 | Empresa con menos de 6 meses desde inicio de actividades | Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria. |
 
 ## Por categoría
 
@@ -65,11 +66,12 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 - **`domain.ssl_missing`** (-40): Sitio sin certificado SSL
 - **`domain.too_many_redirects`** (-15): Cadena de redirecciones >3 hops
 
-### entity (3 reglas, suma de pesos = -70)
+### entity (4 reglas, suma de pesos = -85)
 
 - **`entity.sii_activo`** (+10): Inicio de actividades vigente en el SII
 - **`entity.sii_suspendido`** (-30): Estado 'suspendido' en el SII
 - **`entity.sii_sin_inicio`** (-50): Sin inicio de actividades en el SII
+- **`entity.antiguedad_lt6m`** (-15): Empresa con menos de 6 meses desde inicio de actividades
 
 ### whitelist (3 reglas, suma de pesos = +55)
 

@@ -243,15 +243,15 @@ NIC Chile (RDAP si disponible, WHOIS fallback) + WHOIS internacional.
 
 Scraping SII + dequienes.cl. La pieza más frágil: SII no tiene API.
 
-- [ ] **8.1** Parser SII Situación Tributaria.
+- [x] **8.1** Parser SII Situación Tributaria.
   - **AC:** scraping de `https://zeus.sii.cl/cvc_cgi/stc/getstc` o equivalente. 1 req/s. `SIIError` en fallos. Extrae `inicioActividades: boolean`, `giro`, `fechaInicio`.
   - **Verify:** fixture HTML parsea. Detecta cambio de markup (header expectations).
 
-- [ ] **8.2** Parser dequienes.cl.
+- [x] **8.2** Parser dequienes.cl.
   - **AC:** scraping de socios y representantes. 1 req/s. `DequienesError`.
   - **Verify:** fixture parsea.
 
-- [ ] **8.3** Schemas + reglas + handler + tests + trazas.
+- [x] **8.3** Schemas + reglas + handler + tests + trazas.
   - **AC:** reglas `sii.activo` (+10), `sii.suspendido` (-30), `sii.sin_inicio_actividades` (-50), `entity.antiguedad_lt6m` (-15).
   - **Verify:** `npm test -- verify_chilean_entity` verde.
 
