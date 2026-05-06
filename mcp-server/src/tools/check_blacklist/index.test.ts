@@ -100,7 +100,7 @@ describe("check_blacklist handler — happy path: CMF only", () => {
     assert.equal(response.inBlacklist, true);
     assert.equal(response.hits.length, 1);
     assert.equal(response.hits[0]?.source, "cmf-plataformas-no-reguladas");
-    assert.equal(response.score, -50);
+    assert.equal(response.score, -70);
     assert.equal(response.reasons.length, 1);
     assert.equal(response.reasons[0]?.ruleId, "blacklist.cmf_plataformas_no_reguladas");
   });
@@ -132,7 +132,7 @@ describe("check_blacklist handler — happy path: CMF only", () => {
       "blacklist.cmf_creditos_fraudulentos",
       "blacklist.cmf_plataformas_no_reguladas",
     ]);
-    assert.equal(response.score, -100);
+    assert.equal(response.score, -140);
   });
 });
 

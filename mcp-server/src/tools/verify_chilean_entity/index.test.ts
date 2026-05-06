@@ -103,10 +103,10 @@ describe("verify_chilean_entity handler — happy path", () => {
     assert.equal(response.ageMonths, 1);
     const ids = response.reasons.map((r) => r.ruleId).sort();
     assert.deepEqual(ids, ["entity.antiguedad_lt6m", "entity.sii_activo"]);
-    assert.equal(response.score, -5); // +10 - 15
+    assert.equal(response.score, 0); // +10 - 10
   });
 
-  it("suspendido suma -30", async () => {
+  it("suspendido suma -20", async () => {
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => SII_SUSPENDIDO }),
@@ -118,10 +118,10 @@ describe("verify_chilean_entity handler — happy path", () => {
     });
     const response = await tool.handler({ rut: "76.555.555-5" });
     assert.equal(response.siiStatus, "suspendido");
-    assert.equal(response.score, -30);
+    assert.equal(response.score, -20);
   });
 
-  it("sin_inicio suma -50", async () => {
+  it("sin_inicio suma -40", async () => {
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => SII_SIN_INICIO }),
@@ -133,7 +133,7 @@ describe("verify_chilean_entity handler — happy path", () => {
     });
     const response = await tool.handler({ rut: "76.999.999-9" });
     assert.equal(response.siiStatus, "sin_inicio");
-    assert.equal(response.score, -50);
+    assert.equal(response.score, -40);
   });
 });
 

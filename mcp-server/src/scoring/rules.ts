@@ -222,7 +222,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "blacklist.cmf_plataformas_no_reguladas",
     category: "blacklist",
-    weight: -50,
+    weight: -70,
     reason: "Aparece en CMF — Plataformas de Inversión No Reguladas",
     fundamento:
       "La CMF publica este listado tras detectar oferta pública de inversión sin autorización. Inclusión = banderazo regulatorio chileno explícito.",
@@ -233,7 +233,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "blacklist.cmf_creditos_fraudulentos",
     category: "blacklist",
-    weight: -50,
+    weight: -70,
     reason: "Aparece en CMF — Créditos Fraudulentos",
     fundamento:
       "Listado oficial CMF de operadores de crédito fraudulento. Inclusión es señal regulatoria dura.",
@@ -255,7 +255,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "blacklist.cmf_apps_creditos_no_reguladas",
     category: "blacklist",
-    weight: -50,
+    weight: -70,
     reason: "Aparece en CMF — Apps de Créditos No Reguladas",
     fundamento:
       "Listado oficial CMF de apps de crédito sin autorización formal. Misma fuerza señalética que Plataformas / Créditos Fraudulentos.",
@@ -266,7 +266,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "blacklist.cmf_otras_entidades_no_reguladas",
     category: "blacklist",
-    weight: -50,
+    weight: -70,
     reason: "Aparece en CMF — Otras Entidades No Reguladas",
     fundamento:
       "Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado que no encajan en los otros 3 listados.",
@@ -290,7 +290,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "whitelist.rpsf_autorizada",
     category: "whitelist",
-    weight: 30,
+    weight: 50,
     reason: "Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros)",
     fundamento:
       "Estado 'autorizada' bajo Ley 21.521 implica revisión formal CMF aprobada. Es la señal positiva más fuerte de la lista de la CMF.",
@@ -360,7 +360,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "entity.sii_suspendido",
     category: "entity",
-    weight: -30,
+    weight: -20,
     reason: "Estado 'suspendido' en el SII",
     fundamento:
       "Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado.",
@@ -371,7 +371,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "entity.sii_sin_inicio",
     category: "entity",
-    weight: -50,
+    weight: -40,
     reason: "Sin inicio de actividades en el SII",
     fundamento:
       "Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente.",
@@ -453,7 +453,7 @@ export const rules: ReadonlyArray<Rule> = [
   {
     id: "entity.antiguedad_lt6m",
     category: "entity",
-    weight: -15,
+    weight: -10,
     reason: "Empresa con menos de 6 meses desde inicio de actividades",
     fundamento:
       "Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria.",

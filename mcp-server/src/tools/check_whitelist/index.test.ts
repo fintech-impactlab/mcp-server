@@ -81,7 +81,7 @@ describe("check_whitelist handler — happy path", () => {
     assert.equal(response.inWhitelist, true);
     assert.equal(response.entries.length, 1);
     assert.equal(response.entries[0]?.estado, "autorizada");
-    assert.equal(response.score, 30);
+    assert.equal(response.score, 50);
     assert.equal(response.reasons[0]?.ruleId, "whitelist.rpsf_autorizada");
   });
 
@@ -122,7 +122,7 @@ describe("check_whitelist handler — happy path", () => {
       loadFinteChileMembers: async () => [],
     });
     const response = await tool.handler({ input: "76.123.456-7" });
-    assert.equal(response.score, 30);
+    assert.equal(response.score, 50);
     const signalReasons = response.reasons.filter((r) => r.kind !== "info");
     assert.equal(signalReasons.length, 1);
     assert.equal(signalReasons[0]?.ruleId, "whitelist.rpsf_autorizada");
@@ -136,7 +136,7 @@ describe("check_whitelist handler — happy path", () => {
       loadFinteChileMembers: async () => [fintechileMember()],
     });
     const response = await tool.handler({ input: "FINTECH PAGOS SPA" });
-    assert.equal(response.score, 45); // +30 + +15
+    assert.equal(response.score, 65); // +50 + +15
     const ruleIds = response.reasons.map((r) => r.ruleId).sort();
     assert.deepEqual(ruleIds, ["whitelist.fintechile_miembro", "whitelist.rpsf_autorizada"]);
     assert.equal(response.entries.length, 2);

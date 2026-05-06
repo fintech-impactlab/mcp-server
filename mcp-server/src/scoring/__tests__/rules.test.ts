@@ -22,12 +22,31 @@ describe("rules — invariantes globales", () => {
     }
   });
 
-  it("every weight is an integer in [-50, +50]", () => {
+  it("every weight is an integer in [-70, +50]", () => {
     for (const rule of rules) {
       assert.equal(Number.isInteger(rule.weight), true, `non-integer weight on ${rule.id}`);
-      assert.ok(rule.weight >= -50 && rule.weight <= 50, `weight ${rule.weight} out of range on ${rule.id}`);
+      assert.ok(rule.weight >= -70 && rule.weight <= 50, `weight ${rule.weight} out of range on ${rule.id}`);
       assert.notEqual(rule.weight, 0, `zero-weight rule contributes nothing: ${rule.id}`);
     }
+  });
+
+  it("totales por perfil coinciden con el XLSX (CMF -745/+115, No-CMF -380/+15)", () => {
+    let cmfMin = 0;
+    let cmfMax = 0;
+    let nonCmfMin = 0;
+    let nonCmfMax = 0;
+    for (const rule of rules) {
+      if (rule.weight < 0) cmfMin += rule.weight;
+      else cmfMax += rule.weight;
+      if (rule.appliesToNonCmf) {
+        if (rule.weight < 0) nonCmfMin += rule.weight;
+        else nonCmfMax += rule.weight;
+      }
+    }
+    assert.equal(cmfMin, -745, `score mín CMF esperado -745, got ${cmfMin}`);
+    assert.equal(cmfMax, 115, `score máx CMF esperado +115, got ${cmfMax}`);
+    assert.equal(nonCmfMin, -380, `score mín No-CMF esperado -380, got ${nonCmfMin}`);
+    assert.equal(nonCmfMax, 15, `score máx No-CMF esperado +15, got ${nonCmfMax}`);
   });
 
   it("every rule has a non-empty fundamento", () => {

@@ -17,8 +17,8 @@ describe("score — basic behavior", () => {
       entity: { siiStatus: "activo" },
     };
     const result = score(facts);
-    // rpsf_autorizada (+30) + fintechile_miembro (+15) + sii_activo (+10)
-    assert.equal(result.score, 55);
+    // rpsf_autorizada (+50) + fintechile_miembro (+15) + sii_activo (+10)
+    assert.equal(result.score, 75);
     assert.equal(result.reasons.length, 3);
     const ids = result.reasons.map((r) => r.ruleId).sort();
     assert.deepEqual(ids, [
