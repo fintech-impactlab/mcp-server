@@ -9,6 +9,8 @@ const Reason = z
     weight: z.number().int(),
     message: z.string(),
     fundamento: z.string(),
+    kind: z.enum(["signal", "info"]).optional(),
+    legalRefs: z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -19,6 +21,30 @@ const Source = z
     fetchedAt: z.string(),
     dataAvailable: z.boolean(),
     staleSince: z.string().optional(),
+    documentId: z.string().optional(),
+    articulo: z.string().optional(),
+  })
+  .passthrough();
+
+const LegalCita = z
+  .object({
+    articulo: z.string(),
+    texto: z.string(),
+    extractoCorto: z.string().optional(),
+  })
+  .passthrough();
+
+const LegalReference = z
+  .object({
+    id: z.string(),
+    kind: z.enum(["ley", "ncg", "circular", "resolucion", "manual", "protocolo", "tos"]),
+    titulo: z.string(),
+    autoridad: z.string(),
+    vigenciaDesde: z.string(),
+    vigenciaHasta: z.string().optional(),
+    urlOficial: z.string().url().optional(),
+    citas: z.array(LegalCita).default([]),
+    citasInvocadas: z.array(LegalCita).default([]),
   })
   .passthrough();
 
@@ -46,16 +72,17 @@ const Recommendation = z
 const FullEvaluationResponse = z
   .object({
     totalScore: z.number().int(),
-    verdict: z.string(),
+    verdict: z.enum(["alto_riesgo", "riesgo_medio", "sin_senales_negativas"]),
     confianza: z.number(),
     stoppedAt: z.string().nullable().optional(),
     shortCircuitReason: z.string().nullable().optional(),
     reasons: z.array(Reason).default([]),
     sources: z.array(Source).default([]),
     breakdown: z.array(StageBreakdown).default([]),
-    tipoEntidad: z.string().optional(),
+    tipoEntidad: z.string().nullable().optional(),
     situacion: z.string().optional(),
     recomendaciones: z.array(Recommendation).default([]),
+    legalReferences: z.array(LegalReference).default([]),
     disclaimer: z.string().optional(),
   })
   .passthrough();
@@ -64,6 +91,9 @@ export type Reason = z.infer<typeof Reason>;
 export type Source = z.infer<typeof Source>;
 export type StageBreakdown = z.infer<typeof StageBreakdown>;
 export type Recommendation = z.infer<typeof Recommendation>;
+export type LegalReference = z.infer<typeof LegalReference>;
+export type LegalCita = z.infer<typeof LegalCita>;
+export type Verdict = z.infer<typeof FullEvaluationResponse>["verdict"];
 export type EvaluationResult = z.infer<typeof FullEvaluationResponse> & { input: string };
 
 export type McpClientError = {

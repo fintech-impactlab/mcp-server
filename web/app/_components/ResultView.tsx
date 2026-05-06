@@ -1,5 +1,6 @@
 import type {
   EvaluationResult,
+  LegalReference,
   Reason,
   Recommendation,
   Source,
@@ -13,26 +14,16 @@ const VERDICT_LABEL: Record<
   { tone: Tone; label: string; sub: string }
 > = {
   sin_senales_negativas: {
-    tone: "gray",
-    label: "Sin señales claras",
-    sub: "No hallamos señales de fraude, pero tampoco hay verificación oficial. Procede con precaución.",
-  },
-  senales_positivas: {
     tone: "green",
-    label: "Verificada con señales positivas",
-    sub: "La entidad aparece en registros oficiales y no encontramos alertas vigentes.",
+    label: "Sin señales negativas",
+    sub: "No encontramos alertas vigentes. Igual te recomendamos confirmar por canales oficiales antes de operar.",
   },
-  senales_mixtas: {
-    tone: "yellow",
-    label: "Atención: revisa antes de continuar",
-    sub: "Encontramos señales positivas y de alerta. Lee abajo qué se detectó.",
-  },
-  senales_negativas: {
+  riesgo_medio: {
     tone: "orange",
-    label: "Riesgo moderado",
-    sub: "Hay señales de alerta. Te recomendamos no entregar datos ni dinero hasta confirmar por canales oficiales.",
+    label: "Riesgo medio: revisa antes de continuar",
+    sub: "Hay señales de alerta. No entregues datos ni dinero hasta confirmar por canales oficiales.",
   },
-  riesgo_alto: {
+  alto_riesgo: {
     tone: "red",
     label: "Alto riesgo: no entregues datos",
     sub: "Detectamos alertas serias. No ingreses claves, no transfieras dinero y revisa los canales para denunciar.",
@@ -48,7 +39,18 @@ const TIPO_ENTIDAD: Record<string, string> = {
   emisor_tarjetas: "Emisor de tarjetas",
   ecommerce_credito: "E-commerce con crédito",
   prestamista_no_regulado: "Prestamista sin supervisión",
+  no_fiscalizada: "Entidad no fiscalizada",
   desconocido: "Sin clasificar",
+};
+
+const LEGAL_KIND_LABEL: Record<string, string> = {
+  ley: "Ley",
+  ncg: "Norma de Carácter General",
+  circular: "Circular",
+  resolucion: "Resolución",
+  manual: "Manual",
+  protocolo: "Protocolo",
+  tos: "Términos y condiciones",
 };
 
 const SITUACION: Record<string, string> = {
@@ -285,6 +287,9 @@ function SourceItem({ source }: { source: Source }) {
           {source.dataAvailable ? "Datos disponibles" : "Fuente sin respuesta"} · consultada{" "}
           {formatFetchedAt(source.fetchedAt)}
         </div>
+        {source.articulo && (
+          <div className="cc-source-meta">Referencia: {source.articulo}</div>
+        )}
       </div>
       {source.url && (
         <a
@@ -294,6 +299,43 @@ function SourceItem({ source }: { source: Source }) {
           aria-label={`Abrir ${source.name}`}
         >
           <ExternalIcon />
+        </a>
+      )}
+    </li>
+  );
+}
+
+function LegalReferenceCard({ legal }: { legal: LegalReference }) {
+  const kindLabel = LEGAL_KIND_LABEL[legal.kind] ?? legal.kind;
+  const vigencia = legal.vigenciaHasta
+    ? `${legal.vigenciaDesde} → ${legal.vigenciaHasta}`
+    : `Vigente desde ${legal.vigenciaDesde}`;
+  return (
+    <li className="cc-legal">
+      <div className="cc-legal-head">
+        <span className="cc-legal-kind">{kindLabel}</span>
+        <span className="cc-legal-autoridad">{legal.autoridad}</span>
+      </div>
+      <div className="cc-legal-titulo">{legal.titulo}</div>
+      <div className="cc-legal-meta">{vigencia}</div>
+      {legal.citasInvocadas.length > 0 && (
+        <ul className="cc-legal-citas">
+          {legal.citasInvocadas.map((c, i) => (
+            <li key={`${c.articulo}-${i}`}>
+              <strong>{c.articulo}</strong>
+              {c.extractoCorto ? ` — ${c.extractoCorto}` : c.texto ? ` — ${c.texto}` : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {legal.urlOficial && (
+        <a
+          className="cc-legal-link"
+          href={legal.urlOficial}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Texto oficial <ExternalIcon />
         </a>
       )}
     </li>
@@ -316,6 +358,8 @@ export function ResultView({ input, data }: { input: string; data: EvaluationRes
       ? (SITUACION[data.situacion] ?? data.situacion)
       : null;
   const showRecos = data.recomendaciones.length > 0 && tone !== "green";
+  const signalReasons = data.reasons.filter((r) => r.kind !== "info");
+  const infoReasons = data.reasons.filter((r) => r.kind === "info");
 
   return (
     <>
@@ -375,14 +419,35 @@ export function ResultView({ input, data }: { input: string; data: EvaluationRes
         )}
       </section>
 
-      {data.reasons.length > 0 && (
+      {signalReasons.length > 0 && (
         <section className="cc-section">
           <h2>Qué encontramos</h2>
           <ul className="cc-reasons">
-            {data.reasons.map((r, i) => (
+            {signalReasons.map((r, i) => (
               <ReasonCard key={`${r.ruleId}-${i}`} reason={r} />
             ))}
           </ul>
+        </section>
+      )}
+
+      {infoReasons.length > 0 && (
+        <section className="cc-section">
+          <details>
+            <summary className="cc-sources-summary">
+              Información adicional ({infoReasons.length})
+            </summary>
+            <ul className="cc-reasons">
+              {infoReasons.map((r, i) => (
+                <li key={`${r.ruleId}-${i}`} className="cc-reason">
+                  <span className="cc-reason-tag" data-kind="neutral">Info</span>
+                  <div>
+                    <div className="cc-reason-msg">{r.message}</div>
+                    <div className="cc-reason-fund">{r.fundamento}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
         </section>
       )}
 
@@ -407,6 +472,21 @@ export function ResultView({ input, data }: { input: string; data: EvaluationRes
               <RecommendationCard key={rec.id} rec={rec} />
             ))}
           </ul>
+        </section>
+      )}
+
+      {data.legalReferences.length > 0 && (
+        <section className="cc-section">
+          <details>
+            <summary className="cc-sources-summary">
+              Marco legal aplicable ({data.legalReferences.length})
+            </summary>
+            <ul className="cc-legal-list">
+              {data.legalReferences.map((legal) => (
+                <LegalReferenceCard key={legal.id} legal={legal} />
+              ))}
+            </ul>
+          </details>
         </section>
       )}
 
