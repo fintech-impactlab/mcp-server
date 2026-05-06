@@ -329,15 +329,15 @@ Catálogos en código. Bajo riesgo, alto valor regulatorio.
 
 Catálogo de canales formales por tipo + situación.
 
-- [ ] **12.1** Catálogo de canales.
+- [x] **12.1** Catálogo de canales.
   - **AC:** `src/constants/channels.ts`: CMF Atención de Público, SERNAC, CSIRT/ANCI, denuncia penal. Cada canal: `id`, `nombre`, `urlFormulario`, `camposRequeridos[]`, `documentacionRequerida[]`, `plazosLegales`.
   - **Verify:** test estructural.
 
-- [ ] **12.2** Mapping (tipoEntidad, tipoSituacion) → canales[].
+- [x] **12.2** Mapping (tipoEntidad, tipoSituacion) → canales[].
   - **AC:** tabla en `src/constants/channels-matrix.ts`. SERNAC siempre disponible.
   - **Verify:** test snapshot.
 
-- [ ] **12.3** Schemas + handler + tests.
+- [x] **12.3** Schemas + handler + tests.
   - **AC:** output: `canales[]` ordenados por relevancia (más específico primero).
   - **Verify:** `npm test -- get_official_complaint_channels` verde.
 

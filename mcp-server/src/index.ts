@@ -20,6 +20,7 @@ import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
 import { createGetApplicableRegulationTool } from "./tools/get_applicable_regulation/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
+import { createGetOfficialComplaintChannelsTool } from "./tools/get_official_complaint_channels/index.js";
 import { createVerifyChileanEntityTool } from "./tools/verify_chilean_entity/index.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -120,6 +121,9 @@ async function main(): Promise<void> {
 
   registerTool(mcp, createGetApplicableRegulationTool());
   logger.event("server.tool_registered", { toolName: "get_applicable_regulation" });
+
+  registerTool(mcp, createGetOfficialComplaintChannelsTool());
+  logger.event("server.tool_registered", { toolName: "get_official_complaint_channels" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
