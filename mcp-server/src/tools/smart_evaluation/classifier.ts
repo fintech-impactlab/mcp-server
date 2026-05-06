@@ -6,7 +6,7 @@ import { callClaude, type AnthropicClientLike } from "../../lib/anthropic.js";
 
 import { expandShortUrl, isKnownShortener, type ExpandUrlConfig } from "./helpers/expand-url.js";
 import { normalizeRut } from "./helpers/rut.js";
-import { CLASSIFY_V1 } from "./prompts/classify-v1.js";
+import { CLASSIFY_V2 } from "./prompts/classify-v2.js";
 
 export const ClassifierTypeEnum = z.enum(["url", "domain", "rut", "name", "ambiguo"]);
 export type ClassifierType = z.infer<typeof ClassifierTypeEnum>;
@@ -75,10 +75,10 @@ export async function classifyInput(
     const response = await callClaude({
       client: deps.anthropic,
       model: deps.model,
-      system: CLASSIFY_V1.system,
+      system: CLASSIFY_V2.system,
       messages: [{ role: "user", content: original }],
-      promptId: CLASSIFY_V1.id,
-      promptVersion: CLASSIFY_V1.version,
+      promptId: CLASSIFY_V2.id,
+      promptVersion: CLASSIFY_V2.version,
       toolName: "smart_evaluation",
       maxTokens: 512,
       temperature: 0,
@@ -157,9 +157,33 @@ async function enrichClassifierOutput(
 
   if (claude.type === "rut") {
     const r = normalizeRut(claude.normalized);
-    if (r.canonical !== null) {
-      normalized = r.canonical;
-      if (r.dvWasComputed) rutComputedDV = r.dv;
+    if (r.canonical !== null && r.numeric !== null) {
+      if (r.dvWasComputed) {
+        // Claude no entregó DV (siguiendo prompt v2). El servidor lo calcula.
+        normalized = r.canonical;
+        rutComputedDV = r.dv;
+      } else if (r.validDV) {
+        // Claude entregó un DV correcto.
+        normalized = r.canonical;
+      } else {
+        // Claude inventó un DV inválido. Lo descartamos y recalculamos.
+        const corrected = normalizeRut(r.numeric);
+        if (corrected.canonical !== null) {
+          normalized = corrected.canonical;
+          rutComputedDV = corrected.dv;
+          logger.event(
+            "tool.error",
+            {
+              toolName: "smart_evaluation",
+              source: "classifier",
+              message: "Claude entregó DV inválido; el servidor lo recalculó",
+              retriable: false,
+              promptVersion: CLASSIFY_V2.version,
+            },
+            "warn",
+          );
+        }
+      }
     }
   }
 

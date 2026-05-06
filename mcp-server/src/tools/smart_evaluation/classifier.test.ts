@@ -123,6 +123,59 @@ describe("classifyInput — happy paths", () => {
     assert.equal(result.details.rutComputedDV, "7");
   });
 
+  it("Claude inventa DV inválido → servidor lo descarta y recalcula", async () => {
+    const log = captureLogs();
+    let result;
+    try {
+      result = await classifyInput("13660185", {
+        anthropic: claudeResponding({
+          type: "rut",
+          normalized: "13660185-K", // DV inventado; real es 7
+          confidence: 0.92,
+          details: {
+            extractedEntity: null,
+            suggestedAlternatives: null,
+            isLikelyTinyUrl: false,
+            rawSchemeMissing: false,
+          },
+        }),
+        model: "claude-haiku-4-5-20251001",
+        sleep: async () => {},
+        now: () => FIXED_NOW,
+      });
+    } finally {
+      log.restore();
+    }
+    assert.equal(result.normalized, "13660185-7");
+    assert.equal(result.details.rutComputedDV, "7");
+    const warn = log.events.find(
+      (e) => e.name === "tool.error" && e.payload["source"] === "classifier",
+    );
+    assert.ok(warn, "esperaba warn por DV inválido");
+    assert.equal(warn.level, "warn");
+  });
+
+  it("Claude entrega DV correcto → se preserva sin recalcular", async () => {
+    const result = await classifyInput("13660185-7", {
+      anthropic: claudeResponding({
+        type: "rut",
+        normalized: "13660185-7",
+        confidence: 0.99,
+        details: {
+          extractedEntity: null,
+          suggestedAlternatives: null,
+          isLikelyTinyUrl: false,
+          rawSchemeMissing: false,
+        },
+      }),
+      model: "claude-haiku-4-5-20251001",
+      sleep: async () => {},
+      now: () => FIXED_NOW,
+    });
+    assert.equal(result.normalized, "13660185-7");
+    assert.equal(result.details.rutComputedDV, null);
+  });
+
   it("Nombre con typo → suggestedAlternatives populado por Claude", async () => {
     const result = await classifyInput("scaam-bank.cl", {
       anthropic: claudeResponding({
