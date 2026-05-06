@@ -1,11 +1,11 @@
 "use server";
 
-import { fullEvaluation, type FullEvaluation, type McpClientError } from "@/lib/mcp-client";
+import { evaluate, type EvaluationResult, type McpClientError } from "@/lib/mcp-client";
 import { verifyRecaptcha } from "@/lib/recaptcha";
 
 export type EvaluateState =
   | { status: "idle" }
-  | { status: "ok"; input: string; data: FullEvaluation }
+  | { status: "ok"; input: string; data: EvaluationResult }
   | { status: "error"; input: string; error: McpClientError }
   | { status: "invalid"; message: string };
 
@@ -39,7 +39,7 @@ export async function evaluateAction(
     return { status: "invalid", message };
   }
 
-  const result = await fullEvaluation(input);
+  const result = await evaluate(input);
   if (!result.ok) {
     return { status: "error", input, error: result.error };
   }

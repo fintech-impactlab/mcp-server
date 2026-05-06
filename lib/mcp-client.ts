@@ -1,3 +1,5 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { z } from "zod";
 import { logger, hashInput } from "./logger";
 
@@ -14,106 +16,131 @@ const Source = z
   .object({
     name: z.string(),
     url: z.string().url().optional(),
-    fetchedAt: z.string().datetime(),
+    fetchedAt: z.string(),
     dataAvailable: z.boolean(),
-    staleSince: z.string().datetime().optional(),
+    staleSince: z.string().optional(),
   })
   .passthrough();
 
-const FullEvaluationResult = z
+const BaseToolResponse = z
   .object({
-    score: z.number().int().min(-100).max(100),
-    reasons: z.array(Reason),
-    sources: z.array(Source),
+    score: z.number().int(),
+    reasons: z.array(Reason).default([]),
+    sources: z.array(Source).default([]),
     disclaimer: z.string().optional(),
     verdict: z.string().optional(),
-    stages: z.array(z.unknown()).optional(),
   })
   .passthrough();
 
-export type FullEvaluation = z.infer<typeof FullEvaluationResult>;
+export type ToolResponse = z.infer<typeof BaseToolResponse>;
 
-const JsonRpcResponse = z.object({
-  jsonrpc: z.literal("2.0"),
-  id: z.union([z.string(), z.number(), z.null()]),
-  result: z
-    .object({
-      content: z
-        .array(
-          z.object({
-            type: z.string(),
-            text: z.string().optional(),
-          }),
-        )
-        .optional(),
-      isError: z.boolean().optional(),
-    })
-    .passthrough()
-    .optional(),
-  error: z
-    .object({
-      code: z.number(),
-      message: z.string(),
-      data: z.unknown().optional(),
-    })
-    .optional(),
-});
+export type ToolOutcome = {
+  tool: string;
+  stage: string;
+  ok: boolean;
+  data?: ToolResponse;
+  error?: string;
+};
+
+export type EvaluationResult = {
+  input: string;
+  scoreTotal: number;
+  outcomes: ToolOutcome[];
+};
 
 export type McpClientError = {
   reason:
     | "config_missing"
-    | "network"
+    | "connect_failed"
     | "timeout"
-    | "unauthorized"
-    | "not_found"
-    | "invalid_response"
-    | "rpc_error"
-    | "tool_error";
+    | "all_tools_failed";
   message: string;
 };
 
-export type McpResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: McpClientError };
+export type McpResult<T> = { ok: true; data: T } | { ok: false; error: McpClientError };
 
-const TIMEOUT_FULL_EVAL_MS = 30_000;
-const TIMEOUT_HEALTH_MS = 2_000;
+const TIMEOUT_MS = 30_000;
+
+const TOOL_STAGES: Record<string, string> = {
+  check_blacklist: "screening",
+  check_whitelist: "screening",
+  analyze_domain: "tecnico",
+  check_dns_ownership: "tecnico",
+  verify_chilean_entity: "entidad",
+  check_regulator_status: "entidad",
+  analyze_business_model: "entidad",
+  full_evaluation: "consolidado",
+};
 
 function getConfig(): { url: string; apiKey: string } | null {
   const url = process.env.MCP_URL;
   const apiKey = process.env.MCP_API_KEY;
-  if (!url || !apiKey) {
-    return null;
-  }
+  if (!url || !apiKey) return null;
   return { url: url.replace(/\/+$/, ""), apiKey };
 }
 
-function parseSseEnvelope(body: string): unknown {
-  const lines = body.split(/\r?\n/);
-  const dataLines: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trim());
+function looksLikeUrl(input: string): boolean {
+  try {
+    new URL(input);
+    return true;
+  } catch {
+    if (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(input)) {
+      try {
+        new URL(`https://${input}`);
+        return true;
+      } catch {
+        return false;
+      }
     }
+    return false;
   }
-  if (dataLines.length === 0) {
-    throw new Error("SSE response without data lines");
-  }
-  return JSON.parse(dataLines.join("\n"));
 }
 
-async function readJsonRpcEnvelope(res: Response): Promise<unknown> {
-  const text = await res.text();
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("text/event-stream")) {
-    return parseSseEnvelope(text);
+function normalizeUrl(input: string): string {
+  try {
+    return new URL(input).toString();
+  } catch {
+    return new URL(`https://${input}`).toString();
   }
-  return JSON.parse(text);
 }
 
-export async function fullEvaluation(
-  input: string,
-): Promise<McpResult<FullEvaluation>> {
+function pickToolCalls(input: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
+  const calls: Array<{ tool: string; arguments: Record<string, unknown> }> = [];
+  calls.push({ tool: "check_blacklist", arguments: { input } });
+  if (looksLikeUrl(input)) {
+    calls.push({ tool: "analyze_domain", arguments: { url: normalizeUrl(input) } });
+  }
+  return calls;
+}
+
+function extractToolPayload(result: {
+  content?: Array<{ type: string; text?: string }>;
+  structuredContent?: unknown;
+  isError?: boolean;
+}): { ok: true; data: ToolResponse } | { ok: false; error: string } {
+  if (result.isError) {
+    return { ok: false, error: "tool reportó error" };
+  }
+  if (result.structuredContent !== undefined) {
+    const parsed = BaseToolResponse.safeParse(result.structuredContent);
+    if (parsed.success) return { ok: true, data: parsed.data };
+  }
+  const text = result.content?.find((c) => c.type === "text")?.text;
+  if (!text) return { ok: false, error: "respuesta sin contenido" };
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "contenido no es JSON" };
+  }
+  const parsed = BaseToolResponse.safeParse(payload);
+  if (!parsed.success) {
+    return { ok: false, error: "shape inesperado" };
+  }
+  return { ok: true, data: parsed.data };
+}
+
+export async function evaluate(input: string): Promise<McpResult<EvaluationResult>> {
   const cfg = getConfig();
   const inputHash = hashInput(input);
   if (!cfg) {
@@ -125,179 +152,103 @@ export async function fullEvaluation(
   }
 
   const startedAt = Date.now();
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: crypto.randomUUID(),
-    method: "tools/call",
-    params: {
-      name: "full_evaluation",
-      arguments: { input },
+  const transport = new StreamableHTTPClientTransport(new URL(`${cfg.url}/mcp`), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
     },
   });
+  const client = new Client({ name: "fintech-web", version: "0.1.0" });
 
-  let res: Response;
   try {
-    res = await fetch(`${cfg.url}/mcp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${cfg.apiKey}`,
-      },
-      body,
-      signal: AbortSignal.timeout(TIMEOUT_FULL_EVAL_MS),
-      cache: "no-store",
-    });
+    await client.connect(transport);
   } catch (err) {
-    const timedOut = err instanceof DOMException && err.name === "TimeoutError";
-    logger.error("web.mcp.network", {
+    logger.error("web.mcp.connect_failed", {
       inputHash,
-      durationMs: Date.now() - startedAt,
-      timedOut,
       message: err instanceof Error ? err.message : String(err),
     });
     return {
       ok: false,
       error: {
-        reason: timedOut ? "timeout" : "network",
-        message: timedOut
-          ? "El MCP no respondió a tiempo (30s)."
-          : "No se pudo contactar el MCP.",
+        reason: "connect_failed",
+        message: "No se pudo establecer la sesión MCP.",
       },
     };
   }
 
-  if (res.status === 401 || res.status === 403) {
-    logger.error("web.mcp.unauthorized", { inputHash, status: res.status });
-    return {
-      ok: false,
-      error: { reason: "unauthorized", message: "Credenciales del MCP rechazadas" },
-    };
-  }
+  const calls = pickToolCalls(input);
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
 
-  if (res.status === 404) {
-    logger.error("web.mcp.not_found", { inputHash });
-    return {
-      ok: false,
-      error: { reason: "not_found", message: "Endpoint MCP no encontrado" },
-    };
-  }
+  const settled = await Promise.allSettled(
+    calls.map(async ({ tool, arguments: args }) => {
+      const result = await client.callTool(
+        { name: tool, arguments: args },
+        undefined,
+        { signal },
+      );
+      const payload = extractToolPayload(
+        result as { content?: Array<{ type: string; text?: string }>; structuredContent?: unknown; isError?: boolean },
+      );
+      if (!payload.ok) throw new Error(payload.error);
+      return { tool, data: payload.data };
+    }),
+  );
 
-  let envelope: unknown;
-  try {
-    envelope = await readJsonRpcEnvelope(res);
-  } catch (err) {
-    logger.error("web.mcp.invalid_response", {
+  await client.close().catch(() => {});
+
+  const outcomes: ToolOutcome[] = settled.map((s, i) => {
+    const callDef = calls[i];
+    if (!callDef) {
+      return { tool: "unknown", stage: "unknown", ok: false, error: "internal" };
+    }
+    const tool = callDef.tool;
+    const stage = TOOL_STAGES[tool] ?? "otro";
+    if (s.status === "fulfilled") {
+      return { tool, stage, ok: true, data: s.value.data };
+    }
+    const err = s.reason;
+    if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "TimeoutError") {
+      return { tool, stage, ok: false, error: "timeout" };
+    }
+    return {
+      tool,
+      stage,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  });
+
+  const okCount = outcomes.filter((o) => o.ok).length;
+  if (okCount === 0) {
+    logger.error("web.mcp.all_tools_failed", {
       inputHash,
-      status: res.status,
-      message: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startedAt,
+      tools: outcomes.map((o) => ({ tool: o.tool, error: o.error })),
     });
+    const firstError = outcomes[0]?.error ?? "unknown";
     return {
       ok: false,
-      error: { reason: "invalid_response", message: "Respuesta del MCP ilegible" },
+      error: {
+        reason: firstError === "timeout" ? "timeout" : "all_tools_failed",
+        message:
+          firstError === "timeout"
+            ? "El MCP no respondió a tiempo (30s)."
+            : `No se pudo completar ninguna verificación: ${firstError}`,
+      },
     };
   }
 
-  const parsed = JsonRpcResponse.safeParse(envelope);
-  if (!parsed.success) {
-    logger.error("web.mcp.invalid_response", {
-      inputHash,
-      issues: parsed.error.issues.slice(0, 3),
-    });
-    return {
-      ok: false,
-      error: { reason: "invalid_response", message: "Envelope JSON-RPC inválido" },
-    };
-  }
-
-  const rpc = parsed.data;
-  if (rpc.error) {
-    logger.error("web.mcp.rpc_error", {
-      inputHash,
-      code: rpc.error.code,
-      message: rpc.error.message,
-    });
-    return {
-      ok: false,
-      error: { reason: "rpc_error", message: rpc.error.message },
-    };
-  }
-
-  const result = rpc.result;
-  const textBlock = result?.content?.find((c) => c.type === "text");
-  if (!textBlock?.text) {
-    return {
-      ok: false,
-      error: { reason: "invalid_response", message: "Sin contenido de texto en la respuesta" },
-    };
-  }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(textBlock.text);
-  } catch {
-    return {
-      ok: false,
-      error: { reason: "invalid_response", message: "Contenido de la tool no es JSON" },
-    };
-  }
-
-  const data = FullEvaluationResult.safeParse(payload);
-  if (!data.success) {
-    logger.error("web.mcp.schema_mismatch", {
-      inputHash,
-      issues: data.error.issues.slice(0, 3),
-    });
-    return {
-      ok: false,
-      error: { reason: "invalid_response", message: "La tool devolvió un shape inesperado" },
-    };
-  }
-
-  if (result?.isError) {
-    logger.warn("web.mcp.tool_error", { inputHash });
-    return {
-      ok: false,
-      error: { reason: "tool_error", message: "La tool reportó un error" },
-    };
-  }
+  const scoreTotal = outcomes.reduce((acc, o) => acc + (o.data?.score ?? 0), 0);
 
   logger.event("web.evaluate", {
     inputHash,
     durationMs: Date.now() - startedAt,
-    score: data.data.score,
-    reasonsCount: data.data.reasons.length,
-    sourcesCount: data.data.sources.length,
+    scoreTotal,
+    okCount,
+    failed: outcomes.filter((o) => !o.ok).map((o) => o.tool),
   });
 
-  return { ok: true, data: data.data };
-}
-
-export type HealthResult =
-  | { ok: true; status: string; name?: string; version?: string }
-  | { ok: false; error: string };
-
-export async function health(): Promise<HealthResult> {
-  const cfg = getConfig();
-  if (!cfg) {
-    return { ok: false, error: "config_missing" };
-  }
-  try {
-    const res = await fetch(`${cfg.url}/health`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_HEALTH_MS),
-    });
-    if (!res.ok) {
-      return { ok: false, error: `http_${res.status}` };
-    }
-    const json = (await res.json()) as { status?: string; name?: string; version?: string };
-    return {
-      ok: true,
-      status: json.status ?? "unknown",
-      name: json.name,
-      version: json.version,
-    };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "unknown" };
-  }
+  return {
+    ok: true,
+    data: { input, scoreTotal, outcomes },
+  };
 }
