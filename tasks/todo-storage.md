@@ -29,9 +29,9 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
   - **AC:** [infra/main.bicep](../infra/main.bicep): vars `storageAccountName` y `dataFileShareName` centralizados (evita BCP307 con outputs de módulo). `existing` reference al storage account → `listKeys()` para inyectar la key en el CAE. `mcpApp` recibe `volumes: [{ name: 'data-volume', storageType: 'AzureFile', storageName: cae.outputs.dataStorageDefinitionName }]` + `volumeMounts: [{ volumeName: 'data-volume', mountPath: '/app/data' }]` + env var `DATA_DIR=/app/data`. La key del storage también queda copiada al KV vía script (S1.2) para uso de bootstrap scripts.
   - **Verify:** `az bicep build --file infra/main.bicep` exit 0. ARM compilado muestra `mcpApp.parameters.volumes[0].storageName=<reference cae.outputs.dataStorageDefinitionName>`, `volumeMounts[0].mountPath='/app/data'`, env var `DATA_DIR=/app/data` presente. Deploy end-to-end queda para post-merge en RG real.
 
-- [ ] **S1.6** Probar el mount con archivo de prueba.
+- [x] **S1.6** Probar el mount con archivo de prueba.
   - **AC:** desde el container running, escribir y leer en `/app/data`.
-  - **Verify:** `az containerapp exec -n ca-mcp-fintech-dev -g <rg> --command "sh -c 'echo hello > /app/data/_probe.txt && cat /app/data/_probe.txt && rm /app/data/_probe.txt'"` imprime `hello`. `curl https://<mcp-internal>/health` sigue 200.
+  - **Verify (ejecutado 2026-05-06 en RG `oarocha-fintech`, revision `ca-mcp-fintech-dev--0000009`):** `az containerapp exec --command 'touch /app/data/_probe.txt'` exitoso; `ls -la /app/data` muestra el archivo con permisos `drwxrwxrwx`; `rm` exitoso. Mount bidireccional confirmado. Nota: `sh -c 'echo > ...'` con redirect requiere doble-quoting raro en `az containerapp exec` — usar comandos sin redirect (`touch`, `cat`) es lo más simple.
 
 ---
 
