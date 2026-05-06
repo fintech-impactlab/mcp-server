@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { rules } from "../dist/scoring/rules.js";
+import { SCALE_CMF, SCALE_NO_CMF } from "../dist/scoring/levels.js";
 import { legalCatalog } from "../dist/lib/legal-catalog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -57,7 +58,10 @@ lines.push(
   "- **Determinismo.** Todas las reglas son funciones puras sobre `Facts`. Sin LLM, sin `Math.random`, sin `Date.now`. Mismo input → mismo output (validado por test de 1000 invocaciones en [`engine.test.ts`](mcp-server/src/scoring/__tests__/engine.test.ts)).",
 );
 lines.push(
-  "- **Pesos.** Integer en `[-50, +50]`. Pesos negativos penalizan; positivos premian. Ningún peso es `0`.",
+  "- **Pesos.** Integer en `[-70, +50]`. Pesos negativos penalizan; positivos premian. Ningún peso es `0`. Calibración alineada con el simulador `scoring_extension_chrome_v3.xlsx`.",
+);
+lines.push(
+  "- **Perfil del sitio.** Cada regla declara `appliesToNonCmf`: `true` cuando aplica a sitios que no requieren regulación CMF (señales generales: phishing, SSL, dominio joven, SII), `false` para reglas CMF-only (listados oficiales CMF, RPSF, promesas de rentabilidad). El orquestador `full_evaluation` selecciona el perfil según `tipoEntidad` clasificado en Etapa 3.",
 );
 lines.push(
   "- **Auditabilidad.** Cada regla incluye un `fundamento` (cita o argumento corto) que justifica el peso. Reglas no documentadas no se aceptan en PR.",
@@ -75,11 +79,12 @@ lines.push("");
 
 lines.push("## Catálogo");
 lines.push("");
-lines.push("| id | category | weight | reason | fundamento | referencia normativa |");
-lines.push("|---|---|---:|---|---|---|");
+lines.push("| id | category | weight | aplica No-CMF | reason | fundamento | referencia normativa |");
+lines.push("|---|---|---:|:---:|---|---|---|");
 for (const rule of rules) {
+  const flag = rule.appliesToNonCmf ? "✓" : "—";
   lines.push(
-    `| \`${rule.id}\` | ${rule.category} | ${formatWeight(rule.weight)} | ${escape(rule.reason)} | ${escape(rule.fundamento)} | ${formatLegalRefs(rule.legalRefs)} |`,
+    `| \`${rule.id}\` | ${rule.category} | ${formatWeight(rule.weight)} | ${flag} | ${escape(rule.reason)} | ${escape(rule.fundamento)} | ${formatLegalRefs(rule.legalRefs)} |`,
   );
 }
 lines.push("");
@@ -87,14 +92,70 @@ lines.push("");
 lines.push("## Por categoría");
 lines.push("");
 for (const [category, list] of [...byCategory.entries()].sort()) {
-  const sum = list.reduce((acc, r) => acc + r.weight, 0);
-  lines.push(`### ${category} (${list.length} reglas, suma de pesos = ${formatWeight(sum)})`);
+  const sumCmf = list.reduce((acc, r) => acc + r.weight, 0);
+  const sumNonCmf = list
+    .filter((r) => r.appliesToNonCmf)
+    .reduce((acc, r) => acc + r.weight, 0);
+  const nonCmfCount = list.filter((r) => r.appliesToNonCmf).length;
+  lines.push(
+    `### ${category} (${list.length} reglas, CMF Σ = ${formatWeight(sumCmf)}; No-CMF: ${nonCmfCount}/${list.length} reglas, Σ = ${formatWeight(sumNonCmf)})`,
+  );
   lines.push("");
   for (const rule of list) {
-    lines.push(`- **\`${rule.id}\`** (${formatWeight(rule.weight)}): ${rule.reason}`);
+    const flag = rule.appliesToNonCmf ? "" : " *(CMF-only)*";
+    lines.push(`- **\`${rule.id}\`** (${formatWeight(rule.weight)}): ${rule.reason}${flag}`);
   }
   lines.push("");
 }
+
+// ── Niveles ───────────────────────────────────────────────────────────────
+lines.push("## Niveles de confianza");
+lines.push("");
+lines.push(
+  "El score consolidado del orquestador `full_evaluation` se mapea a un nivel 1-5 con etiqueta humana. Hay **dos escalas independientes** porque el rango de score posible cambia con el perfil del sitio (CMF: `[-745, +115]`; No-CMF: `[-380, +15]`). Mismo score puede caer en niveles distintos según el perfil aplicado.",
+);
+lines.push("");
+
+function renderScale(name, scale, totalNeg, totalPos) {
+  lines.push(`### Escala ${name} (rango posible: ${formatWeight(totalNeg)} a ${formatWeight(totalPos)})`);
+  lines.push("");
+  lines.push("| Nivel | Etiqueta | Umbral mínimo (≥) |");
+  lines.push("|:---:|---|---:|");
+  for (const entry of scale) {
+    const min = entry.minScore <= -9999 ? "−∞ (sentinela)" : formatWeight(entry.minScore);
+    lines.push(`| ${entry.id} | ${entry.label} | ${min} |`);
+  }
+  lines.push("");
+}
+
+const cmfNeg = rules.filter((r) => r.weight < 0).reduce((a, r) => a + r.weight, 0);
+const cmfPos = rules.filter((r) => r.weight > 0).reduce((a, r) => a + r.weight, 0);
+const nonCmfRules = rules.filter((r) => r.appliesToNonCmf);
+const nonCmfNeg = nonCmfRules.filter((r) => r.weight < 0).reduce((a, r) => a + r.weight, 0);
+const nonCmfPos = nonCmfRules.filter((r) => r.weight > 0).reduce((a, r) => a + r.weight, 0);
+
+renderScale("CMF", SCALE_CMF, cmfNeg, cmfPos);
+renderScale("No-CMF", SCALE_NO_CMF, nonCmfNeg, nonCmfPos);
+
+lines.push(
+  "> El nivel 1 (Crítico) absorbe todo lo que esté por debajo del umbral del nivel 2 en cada escala (umbral `-9999` es sentinela).",
+);
+lines.push("");
+
+lines.push("## Compatibilidad con `verdict` legacy");
+lines.push("");
+lines.push(
+  "El campo `verdict` del output del orquestador (3 estados) se deriva del `nivel` para retro-compat con clientes existentes:",
+);
+lines.push("");
+lines.push("| nivel | etiqueta | verdict legacy |");
+lines.push("|:---:|---|---|");
+lines.push("| 1 | Crítico | `alto_riesgo` |");
+lines.push("| 2 | Riesgoso | `alto_riesgo` |");
+lines.push("| 3 | Neutro | `riesgo_medio` |");
+lines.push("| 4 | Confiable | `sin_senales_negativas` |");
+lines.push("| 5 | Muy confiable | `sin_senales_negativas` |");
+lines.push("");
 
 writeFileSync(target, lines.join("\n"), "utf-8");
 process.stdout.write(`scoring-docs: wrote ${target} (${rules.length} rules)\n`);
