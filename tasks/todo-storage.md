@@ -21,7 +21,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
   - **AC:** [infra/modules/container-apps-env.bicep](../infra/modules/container-apps-env.bicep) recibe params opcionales `dataStorageAccountName`, `dataFileShareName`, `dataStorageAccountKey` (con `@secure()`). Cuando los tres están set, crea recurso hijo `Microsoft.App/managedEnvironments/storages@2024-03-01` con `name: 'mcp-data-storage'`, `properties.azureFile: { accountName, accountKey, shareName, accessMode: 'ReadWrite' }`. Output `dataStorageDefinitionName` (vacío si la definición no se crea). Defaults vacíos permiten que main.bicep siga compilando antes de S1.5.
   - **Verify:** `az bicep build --file infra/main.bicep` sin errores ni warnings. ARM compilado contiene `Microsoft.App/managedEnvironments/storages` con `condition` ligado a `variables('enableDataStorage')`.
 
-- [ ] **S1.4** Parametrizar `volumes` y `volumeMounts` en el módulo Container App.
+- [x] **S1.4** Parametrizar `volumes` y `volumeMounts` en el módulo Container App.
   - **AC:** [infra/modules/container-app.bicep](../infra/modules/container-app.bicep) acepta dos parámetros opcionales: `volumes: array = []`, `volumeMounts: array = []`. Inyectados como `template.volumes` y `template.containers[0].volumeMounts` solo si tienen elementos (no romper el web app que los pasa vacíos). Sin cambios de tipos en el callsite del web app.
   - **Verify:** `az bicep build` ok. Deploy del web app sigue exitoso (regression). El módulo inyecta el array vacío correctamente (revisar el output del template intermedio con `--debug`).
 

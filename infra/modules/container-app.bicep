@@ -50,6 +50,12 @@ param secrets array = []
 @description('Mapeos secret → env var: lista de { name, secretRef } que crea env vars apuntando a secrets locales.')
 param secretEnvVars array = []
 
+@description('Volúmenes a definir a nivel de revisión, ej: [{ name, storageType, storageName }]. Vacío = sin volúmenes.')
+param volumes array = []
+
+@description('Mounts del container principal, ej: [{ volumeName, mountPath }]. Vacío = sin mounts.')
+param volumeMounts array = []
+
 var secretEnvVarsExpanded = [for sev in secretEnvVars: {
   name: sev.name
   secretRef: sev.secretRef
@@ -104,8 +110,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             memory: memory
           }
           env: allEnvVars
+          volumeMounts: volumeMounts
         }
       ]
+      volumes: volumes
       scale: {
         minReplicas: minReplicas
         maxReplicas: maxReplicas
