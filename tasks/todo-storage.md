@@ -41,7 +41,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
   - **AC:** [mcp-server/scripts/upload-data-to-share.mjs](../mcp-server/scripts/upload-data-to-share.mjs) (nuevo). Args: `--storage-account <st> --vault <kv> [--data-dir ./data] [--share mcp-data]`. Lee `storage-account-key` de KV. Ejecuta `az storage file upload-batch` para `*.csv` y `*.xlsx` → `snapshots/cmf/`, y `data/normativas/` → `normativas/` recursivo (preserva `sii/`). `az storage directory create` (idempotente, tolera "already exists") para `snapshots/rpsf/` y `audit/`. Cambio vs plan: directorios vacíos en lugar de `.keep` files (`upload` single file falla con `ParentNotFound` si el dir padre no existe; `directory create` es la primitiva correcta).
   - **Verify (ejecutado 2026-05-06 contra `stfintechdevic66pjdlbzw6`/`mcp-data`):** 8 archivos en `snapshots/cmf` (4 CSV + 4 XLSX), 12 en `normativas` raíz (6 .md + 6 .pdf), 8 en `normativas/sii` (4 .md + 4 .pdf), directorios `audit` y `snapshots/rpsf` creados. Re-ejecución limpia (idempotente).
 
-- [ ] **S2.2** Documentar la sincronización en README.
+- [x] **S2.2** Documentar la sincronización en README.
   - **AC:** [README.md](../README.md) sección "Datos y referencias locales" tiene un bloque "Sincronización al File Share" con: comando del script, qué se sube, cómo agregar nuevas normativas, advertencia de que el File Share es la fuente de verdad en runtime.
   - **Verify:** sección renderiza ok en GitHub preview; los comandos copiados se ejecutan sin modificación.
 

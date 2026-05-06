@@ -16,6 +16,7 @@
 - [Casos de uso](#casos-de-uso)
 - [Fuentes de datos](#fuentes-de-datos)
 - [Marco legal cubierto](#marco-legal-cubierto)
+- [Datos y referencias locales (`data/`)](#datos-y-referencias-locales-data)
 - [Roadmap](#roadmap)
 
 ---
@@ -395,11 +396,13 @@ El diseño granular permite que distintos canales armen distintas cadenas según
 - **PhishTank** — URLs de phishing reportadas globalmente. API REST pública.
 - **Google Safe Browsing** — listas de sitios maliciosos de Google. API.
 
+> Documentación técnica detallada de cada API (endpoints, auth, parámetros, ejemplos, rate limits y políticas de consumo) en [`data/APIS.md`](./data/APIS.md).
+
 **Públicas oficiales (sin API REST — descarga o scraping respetuoso 1 req/s):**
 
-- **CMF Alertas Ciudadanas** — listados de Plataformas de Inversión No Reguladas, Apps de Créditos No Reguladas, Créditos Fraudulentos, Otras Entidades No Reguladas (XLSX descargables).
+- **CMF Alertas Ciudadanas** — listados de Plataformas de Inversión No Reguladas, Apps de Créditos No Reguladas, Créditos Fraudulentos, Otras Entidades No Reguladas (XLSX descargables). Snapshot vigente en [`data/`](./data/) como CSV.
 - **CMF RPSF (Registro de Prestadores de Servicios Financieros)** — entidades autorizadas y solicitudes en revisión bajo Ley 21.521. 179 autorizadas + 300 en revisión a feb 2025.
-- **CMF — Circulares y normativas** — NCG 502, NCG 514, Manual SIF, Circular 2.345 (PDF/HTML).
+- **CMF — Circulares y normativas** — NCG 502, NCG 514, Manual SIF, Circular 2.345 (PDF/HTML). Snapshot vigente en [`data/normativas/`](./data/normativas/) (PDF + texto extraído `.md`).
 - **SII Situación Tributaria** — verificación de inicio de actividades, giro y antigüedad por RUT.
 - **NIC Chile** — registro de dominios `.cl` (registrante, fecha, contacto).
 - **dequienes.cl** — socios y representantes legales de empresas chilenas.
@@ -441,6 +444,78 @@ El diseño granular permite que distintos canales armen distintas cadenas según
 - **NCG 514** — Sistema de Finanzas Abiertas. Open Finance: APIs y portabilidad de datos financieros.
 - **Circular 2.345** — Transparencia en cobros (relevante para protección al consumidor financiero).
 - **Manual SIF** — Reportería tecnológica y estándares CMF de ciberseguridad para fintech (puente con ANCI).
+
+---
+
+## Datos y referencias locales (`data/`)
+
+Snapshots versionados de las fuentes públicas y documentación técnica de las APIs consumidas. Sirven como fixtures para tests, fallback offline y referencia de implementación.
+
+### `data/` — listados CMF (CSV)
+
+Convertidos desde los XLSX oficiales de CMF Alertas Ciudadanas. Refrescar periódicamente desde el portal CMF.
+
+| Archivo                                       | Fuente original                              |
+|-----------------------------------------------|----------------------------------------------|
+| `apps_creditos_no_reguladas.csv`              | CMF — Apps de Créditos No Reguladas          |
+| `creditos_fraudulentos.csv`                   | CMF — Créditos Fraudulentos                  |
+| `plataformas_inversion_no_reguladas.csv`      | CMF — Plataformas de Inversión No Reguladas  |
+| `otras_entidades_no_reguladas.csv`            | CMF — Otras Entidades No Reguladas           |
+
+### `data/normativas/` — normativas CMF (PDF + texto)
+
+Cada normativa está disponible como PDF original y como `.md` (texto plano extraído con `pdftotext -layout`, útil para grep y carga en pipelines de embeddings).
+
+| Archivo                                  | Normativa                                    |
+|------------------------------------------|----------------------------------------------|
+| `ncg_502_2024.{pdf,md}`                  | NCG 502 — Registro y obligaciones Fintec     |
+| `ncg_503_2024.{pdf,md}`                  | NCG 503 — Idoneidad / competencia de roles    |
+| `ncg_504_2024.{pdf,md}`                  | NCG 504 — Disposiciones Art. 65 LMV           |
+| `ncg_514_2024.{pdf,md}`                  | NCG 514 — Sistema de Finanzas Abiertas        |
+| `cir_2345_2024.{pdf,md}`                 | Circular 2.345 — Transparencia en cobros      |
+| `manual_sif_tablas_codificaciones.{pdf,md}` | Manual SIF — tablas y codificaciones       |
+
+### `data/APIS.md` — referencia de APIs públicas
+
+Documentación técnica consolidada de las APIs REST/JSON que el MCP consume: Banco Central BDE, BCN Ley Fácil, PhishTank, Google Safe Browsing v4, URLhaus. Incluye endpoints, autenticación, parámetros, ejemplos de request/response, rate limits, mapping de credenciales a Key Vault y la política transversal de consumo (timeouts, retries, cache, errores tipados, logs sin PII).
+
+### Sincronización al File Share (`mcp-data` → `/app/data`)
+
+En producción la carpeta `data/` no se copia dentro de la imagen. Se sube **una sola vez** al Azure File Share `mcp-data`, que el Container App MCP monta en `/app/data` vía la definición de storage del CAE (`infra/modules/container-apps-env.bicep`). El runtime usa `DATA_DIR=/app/data` y los helpers de [`src/lib/storage.ts`](mcp-server/src/lib/storage.ts) (`createStorage()`) para leer/escribir con guardia anti path-traversal.
+
+**Layout en el share** (espeja la estructura local):
+
+```
+mcp-data/
+├── snapshots/cmf/        ← *.csv y *.xlsx (CMF Alertas Ciudadanas)
+├── snapshots/rpsf/       ← vacío inicialmente; jobs lo poblan
+├── normativas/           ← PDFs + .md (NCG, circulares, manuales SII/CMF)
+│   └── sii/
+└── audit/                ← <YYYY-MM-DD>.jsonl append-only por runtime
+```
+
+**Bootstrap en el primer deploy:**
+
+```bash
+RG=oarocha-fintech
+DEPLOY=storage-volume-s1
+ST=$(az deployment group show -g $RG -n $DEPLOY --query 'properties.outputs.storageAccountName.value' -o tsv)
+KV=$(az deployment group show -g $RG -n $DEPLOY --query 'properties.outputs.keyVaultName.value' -o tsv)
+
+# 1) Sembrar la storage key en Key Vault (necesaria para el script de upload)
+node mcp-server/scripts/seed-storage-key-secret.mjs --storage-account "$ST" --vault "$KV"
+
+# 2) Subir el contenido actual de data/ al share
+node mcp-server/scripts/upload-data-to-share.mjs \
+  --storage-account "$ST" \
+  --vault "$KV" \
+  --data-dir ./data \
+  --share mcp-data
+```
+
+Ambos scripts son idempotentes — re-correrlos no genera churn. Para agregar una normativa nueva: copiar el PDF + el `.md` derivado a `data/normativas/` (o `data/normativas/sii/`) y volver a correr el `upload-data-to-share.mjs`. Para refrescar snapshots CMF: descargar el XLSX nuevo, regenerar el CSV con el script correspondiente, y re-subir.
+
+> **Decisión arquitectónica:** ver el ADR pendiente en [`docs/adr/`](docs/adr/) (S5). En resumen: File Share SMB en lugar de Blob Storage para tener semántica de filesystem y una sola fuente de verdad.
 
 ---
 
