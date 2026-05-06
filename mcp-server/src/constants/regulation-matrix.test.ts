@@ -15,6 +15,7 @@ const ENTITY_TYPES: ReadonlyArray<EntityType> = [
   "emisor_tarjetas",
   "ecommerce_credito",
   "prestamista_no_regulado",
+  "no_fiscalizada",
   "desconocido",
 ];
 

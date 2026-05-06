@@ -81,7 +81,15 @@ describe("analyze_domain handler — happy path", () => {
     assert.equal(response.sslIssuer, "DigiCert Inc");
     assert.equal(response.redirects.length, 0);
     assert.equal(response.score, 0);
-    assert.equal(response.reasons.length, 0);
+    // Política nueva: 3 fuentes OK sin signal rule → 3 info reasons.
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 0);
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.deepEqual(infoIds.sort(), [
+      "info.analyze_domain.redirects_clean",
+      "info.analyze_domain.tls_valid",
+      "info.analyze_domain.whois_verified",
+    ]);
   });
 
   it("dispara young_lt7d y ssl_lets_encrypt_recent (combinado)", async () => {
@@ -107,8 +115,8 @@ describe("analyze_domain handler — happy path", () => {
     const response = await tool.handler({ url: "https://scam.example/" });
     assert.equal(response.domainAgeDays, 2);
     assert.equal(response.score, -50); // -40 (young_lt7d) + -10 (ssl_lets_encrypt_recent)
-    const ids = response.reasons.map((r) => r.ruleId).sort();
-    assert.deepEqual(ids, ["domain.ssl_lets_encrypt_recent", "domain.young_lt7d"]);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId).sort();
+    assert.deepEqual(signalIds, ["domain.ssl_lets_encrypt_recent", "domain.young_lt7d"]);
   });
 
   it("dispara too_many_redirects cuando hops >= 4", async () => {

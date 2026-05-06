@@ -1,6 +1,7 @@
 import { DequienesError, SIIError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 
@@ -52,9 +53,47 @@ export function createVerifyChileanEntityTool(
       };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: por fuente OK que no contribuyó signal rule.
+      const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
+      const entityRuleFired = [...firedRules].some((id) => id.startsWith("entity."));
+      const infoReasons = [];
+      if (siiResult.dataAvailable && !entityRuleFired) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "sii_verified_no_signal",
+            "SII respondió pero el estado no clasifica en reglas de scoring",
+            {
+              fundamento:
+                "Se consultó la situación tributaria del SII; el estado retornado no dispara reglas de entity (activo/suspendido/sin_inicio).",
+              legalRefs: ["CL-CT-66"],
+            },
+          ),
+        );
+      }
+      if (dequienesResult.dataAvailable) {
+        const socCount = dequienesResult.socios.length;
+        const repCount = dequienesResult.representantes.length;
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "dequienes_verified",
+            socCount + repCount > 0
+              ? `Socios y representantes públicos identificados: ${socCount} socio(s), ${repCount} representante(s)`
+              : "Sin socios ni representantes públicos en dequienes.cl",
+            {
+              fundamento:
+                "Se consultó dequienes.cl; los datos públicos de socios y representantes legales se incluyen en la respuesta para auditoría del usuario.",
+            },
+          ),
+        );
+      }
+
       const sources = [
         {
           name: "sii",
+          documentId: "CL-CT-66",
+          articulo: "Artículo 66 — Inicio de actividades ante el Servicio de Impuestos Internos",
           fetchedAt,
           dataAvailable: siiResult.dataAvailable,
         },
@@ -76,7 +115,7 @@ export function createVerifyChileanEntityTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         rut,
         razonSocial: siiResult.razonSocial ?? dequienesResult.razonSocial,

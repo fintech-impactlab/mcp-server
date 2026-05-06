@@ -9,6 +9,7 @@ export interface ScoreReason {
   weight: number;
   message: string;
   fundamento: string;
+  legalRefs?: string[];
 }
 
 export interface ScoreResult {
@@ -25,12 +26,16 @@ export function score(
   for (const rule of rules) {
     if (rule.predicate(facts)) {
       total += rule.weight;
-      reasons.push({
+      const reason: ScoreReason = {
         ruleId: rule.id,
         weight: rule.weight,
         message: rule.reason,
         fundamento: rule.fundamento,
-      });
+      };
+      if (rule.legalRefs !== undefined) {
+        reason.legalRefs = [...rule.legalRefs];
+      }
+      reasons.push(reason);
     }
   }
   return { score: total, reasons };

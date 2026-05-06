@@ -2,6 +2,7 @@ import type { Cache } from "../../lib/cache.js";
 import { CMFFetchError, PhishTankError, URLhausError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { Storage } from "../../lib/storage.js";
@@ -63,18 +64,22 @@ export function createCheckBlacklistTool(
       const sources = [
         {
           name: "cmf-alertas",
+          documentId: "CMF-ALERTAS-PIF",
+          articulo: "Listados oficiales de alertas CMF (Plataformas, Apps, Créditos, Otras)",
           url: SOURCE_URL,
           fetchedAt,
           dataAvailable: cmfHits.dataAvailable,
         },
         {
           name: "phishtank",
+          documentId: "EXT-PHISHTANK-TOS",
           url: "https://www.phishtank.com/",
           fetchedAt,
           dataAvailable: phishtankResult.dataAvailable,
         },
         {
           name: "urlhaus",
+          documentId: "EXT-URLHAUS-TOS",
           url: "https://urlhaus.abuse.ch/",
           fetchedAt,
           dataAvailable: urlhausResult.dataAvailable,
@@ -106,6 +111,40 @@ export function createCheckBlacklistTool(
       const facts: Facts = { blacklist: { sources: factsBlacklistSources } };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: por cada fuente OK que no produjo un hit, emitir una
+      // razón informativa (weight 0). Permite al cliente saber qué se verificó.
+      const infoReasons = [];
+      if (cmfHits.dataAvailable && cmfHits.entries.length === 0) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "cmf_alertas_no_match",
+            "Sin coincidencias en CMF Alertas Ciudadanas",
+            {
+              fundamento:
+                "Se consultaron los 4 listados oficiales (Plataformas / Apps Crédito / Créditos Fraudulentos / Otras). El input no figura en ninguno.",
+              legalRefs: ["CMF-ALERTAS-PIF"],
+            },
+          ),
+        );
+      }
+      if (phishtankResult.dataAvailable && phishtankResult.hit === null) {
+        infoReasons.push(
+          infoReason(TOOL_NAME, "phishtank_no_match", "Sin coincidencias en PhishTank", {
+            fundamento: "La URL no figura en la base de phishing reportada por PhishTank.",
+            legalRefs: ["EXT-PHISHTANK-TOS"],
+          }),
+        );
+      }
+      if (urlhausResult.dataAvailable && urlhausResult.hit === null) {
+        infoReasons.push(
+          infoReason(TOOL_NAME, "urlhaus_no_match", "Sin coincidencias en URLhaus", {
+            fundamento: "La URL no figura en la base de malware activa de abuse.ch / URLhaus.",
+            legalRefs: ["EXT-URLHAUS-TOS"],
+          }),
+        );
+      }
+
       logger.event("tool.call", {
         toolName: TOOL_NAME,
         inputHash,
@@ -118,7 +157,7 @@ export function createCheckBlacklistTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         inBlacklist: hits.length > 0,
         hits,

@@ -4,6 +4,7 @@ import {
   lookupRegulation,
   type Situacion,
 } from "../../constants/regulation-matrix.js";
+import { catalogIdFromInternal } from "../../lib/legal-catalog.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { EntityType } from "../check_regulator_status/classifier.js";
@@ -72,12 +73,32 @@ export function createGetApplicableRegulationTool(
         normsCount: normativasCMF.length,
       });
 
+      const legalRefs = [
+        ...leyesAplicables.map((l) => catalogIdFromInternal(l.id)),
+        ...normativasCMF.map((n) => catalogIdFromInternal(n.id)),
+      ].filter((id): id is string => id !== undefined);
+
+      const reasons =
+        legalRefs.length > 0
+          ? [
+              {
+                ruleId: "regulation.applicable_catalog",
+                weight: 0,
+                message: `Catálogo aplicable a (${rawInput.tipoEntidad}, ${rawInput.situacion}): ${leyesAplicables.length} leyes y ${normativasCMF.length} normativas CMF`,
+                fundamento:
+                  "Lookup determinístico en regulation-matrix; sin LLM. Citas son auditables vía catálogo legal.",
+                legalRefs,
+              },
+            ]
+          : [];
+
       return {
         score: 0,
-        reasons: [],
+        reasons,
         sources: [
           {
             name: "regulation-catalog",
+            documentId: "EXT-BCN-LEY-FACIL",
             fetchedAt,
             dataAvailable: true,
           },

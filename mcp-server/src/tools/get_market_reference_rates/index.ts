@@ -61,6 +61,7 @@ export function createGetMarketReferenceRatesTool(
 
         const source = {
           name: SOURCE_NAME,
+          documentId: "EXT-BCE-BDE",
           url: SOURCE_URL,
           fetchedAt,
           dataAvailable: true,
@@ -99,6 +100,7 @@ export function createGetMarketReferenceRatesTool(
           sources: [
             {
               name: SOURCE_NAME,
+              documentId: "EXT-BCE-BDE",
               url: SOURCE_URL,
               fetchedAt,
               dataAvailable: false,

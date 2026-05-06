@@ -11,6 +11,7 @@ describe("classifyEntity — RPSF tipoEntidad gana cuando está autorizada o en 
       nombre: "FINTECH PAGOS SPA",
       rpsfTipoEntidad: "Prestador de Servicios de Iniciación de Pagos",
       rpsfEstado: "autorizada",
+      rpsfDataAvailable: true,
       giros: [],
       enListaBancos: false,
     };
@@ -22,6 +23,7 @@ describe("classifyEntity — RPSF tipoEntidad gana cuando está autorizada o en 
       nombre: "Asesoría XYZ SpA",
       rpsfTipoEntidad: "Asesor de Inversiones",
       rpsfEstado: "en_revision",
+      rpsfDataAvailable: true,
       giros: [],
       enListaBancos: false,
     };
@@ -35,6 +37,7 @@ describe("classifyEntity — lista de bancos prevalece sobre giros", () => {
       nombre: "Banco de Chile",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [],
       enListaBancos: true,
     };
@@ -48,6 +51,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Banco X",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("641100", "Banca Múltiple")],
       enListaBancos: false,
     };
@@ -59,6 +63,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Préstamos Express SpA",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("649200", "Otras actividades de servicios financieros, excepto seguros y AFP")],
       enListaBancos: false,
     };
@@ -70,6 +75,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Coopeuch",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("641902", "Cooperativas de ahorro y crédito")],
       enListaBancos: false,
     };
@@ -81,6 +87,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Los Andes",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("641909", "Cajas de compensación de asignación familiar")],
       enListaBancos: false,
     };
@@ -92,6 +99,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Cambio AFEX",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("661210", "Casas de cambio y servicios de cambio de moneda")],
       enListaBancos: false,
     };
@@ -103,6 +111,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Tarjetas X",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("652020", "Emisión de tarjetas de crédito y débito")],
       enListaBancos: false,
     };
@@ -114,6 +123,7 @@ describe("classifyEntity — fallback a giros del SII", () => {
       nombre: "Tienda Online Crédito",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
       giros: [giro("479101", "Venta al por menor por internet")],
       enListaBancos: false,
     };
@@ -121,15 +131,40 @@ describe("classifyEntity — fallback a giros del SII", () => {
   });
 });
 
-describe("classifyEntity — desconocido cuando no matchea ninguna categoría", () => {
-  it("sin giros, sin RPSF, sin lista bancos → desconocido", () => {
+describe("classifyEntity — no_fiscalizada vs desconocido", () => {
+  it("RPSF respondió y no figura, sin giros ni lista bancos → no_fiscalizada", () => {
     const input: ClassifierInput = {
       nombre: "Empresa Genérica SpA",
       rpsfTipoEntidad: null,
       rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
+      giros: [],
+      enListaBancos: false,
+    };
+    assert.equal(classifyEntity(input), "no_fiscalizada");
+  });
+
+  it("RPSF cayó (no se pudo verificar) → desconocido", () => {
+    const input: ClassifierInput = {
+      nombre: "Empresa Genérica SpA",
+      rpsfTipoEntidad: null,
+      rpsfEstado: "no_registrada",
+      rpsfDataAvailable: false,
       giros: [],
       enListaBancos: false,
     };
     assert.equal(classifyEntity(input), "desconocido");
+  });
+
+  it("RPSF respondió no_registrada pero giro 6491 → fintech (no se altera)", () => {
+    const input: ClassifierInput = {
+      nombre: "Servicios Pago SpA",
+      rpsfTipoEntidad: null,
+      rpsfEstado: "no_registrada",
+      rpsfDataAvailable: true,
+      giros: [giro("649100", "Servicios de pago y transferencia de fondos")],
+      enListaBancos: false,
+    };
+    assert.equal(classifyEntity(input), "fintech");
   });
 });

@@ -329,9 +329,11 @@ Cada tool retorna un score parcial calculado por reglas explícitas y auditables
 - Cada señal aporta un peso fijo y conocido.
 - Las reglas son auditables — pueden revisarse en una tabla.
 - El score nunca es opaco — siempre viene acompañado de las razones que lo componen.
+- **Cada regla aplicable cita ≥1 referencia normativa exacta** (Ley + artículo, NCG, Circular) del catálogo legal único en [`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts). Las citas son texto verbatim anclado a archivos en [`data/normativas/`](data/normativas/) — verificable y sin LLM en el path. Detalle: [docs/adr/ADR-002-legal-references-catalog.md](docs/adr/ADR-002-legal-references-catalog.md).
+- **Cada `Reason` tiene un `kind`**: `"signal"` (default, regla con `weight ≠ 0` que afecta el score) o `"info"` (`weight = 0`, describe qué se verificó cuando una fuente respondió OK sin matchear ninguna regla). Las info reasons se emiten para que el output no quede mudo cuando todo es "no se halló nada negativo". Cliente puede filtrar por `kind === "signal"` para UI compacta.
 - El cliente puede ignorar el score y razonar sobre los hechos crudos directamente.
 
-> Las reglas específicas (señal → puntos → fundamento) están documentadas en [SCORING.md](SCORING.md), generado automáticamente desde [`mcp-server/src/scoring/rules.ts`](mcp-server/src/scoring/rules.ts).
+> Las reglas específicas (señal → puntos → fundamento → referencia normativa) están documentadas en [SCORING.md](SCORING.md), generado automáticamente desde [`mcp-server/src/scoring/rules.ts`](mcp-server/src/scoring/rules.ts).
 
 ---
 

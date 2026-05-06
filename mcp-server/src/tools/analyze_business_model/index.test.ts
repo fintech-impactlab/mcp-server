@@ -39,7 +39,12 @@ describe("analyze_business_model — happy path: texto profesional sin flags", (
     const parsed = OutputSchema.safeParse(response);
     assert.equal(parsed.success, true, parsed.success ? "" : JSON.stringify(parsed.error.issues));
     assert.equal(response.score, 0);
-    assert.equal(response.reasons.length, 0);
+    // Política nueva: sin flags → 1 info reason "detectors_no_flag".
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 0);
+    assert.ok(
+      response.reasons.some((r) => r.ruleId === "info.analyze_business_model.detectors_no_flag"),
+    );
     assert.equal(response.disclaimer, DISCLAIMER);
     assert.equal(response.flags.promesaRentabilidad.excedeTMC, false);
     assert.equal(response.flags.estructuraReferidos, false);

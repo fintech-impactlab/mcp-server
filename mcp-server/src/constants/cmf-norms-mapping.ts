@@ -87,6 +87,7 @@ export const CMF_NORMS_MAPPING: Readonly<Record<EntityType, ReadonlyArray<NormaR
   emisor_tarjetas: [NCG_502, MANUAL_SIF, LEY_18010, LEY_19496, LEY_19628],
   ecommerce_credito: [LEY_19496, LEY_19628, LEY_18010],
   prestamista_no_regulado: [LEY_18010, LEY_19496, LEY_19628],
+  no_fiscalizada: [LEY_19496, LEY_19628, LEY_18010],
   desconocido: [LEY_19496, LEY_19628],
 };
 

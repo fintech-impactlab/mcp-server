@@ -5,8 +5,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
-COPY tsconfig.json next.config.mjs ./
-COPY src ./src
+COPY tsconfig.json next.config.ts postcss.config.mjs eslint.config.mjs next-env.d.ts ./
+COPY app ./app
+COPY lib ./lib
+COPY public ./public
 ENV NODE_ENV=production
 RUN pnpm run build
 
@@ -17,7 +19,7 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Patch OS packages and strip dev tools (see mcp-server/Dockerfile for rationale).
+# Patch OS packages and strip dev tools (Trivy CRITICAL/HIGH gate).
 RUN apk upgrade --no-cache && \
     rm -rf /usr/local/lib/node_modules/npm \
            /usr/local/lib/node_modules/corepack \
@@ -30,6 +32,7 @@ RUN apk upgrade --no-cache && \
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -87,6 +87,8 @@ const BaseToolResponse = z.object({
     weight: z.number().int(),
     message: z.string(),
     fundamento: z.string(), // por qué esta regla aporta este peso
+    legalRefs: z.array(z.string()).optional(), // IDs del catálogo legal (Slice S1-S2)
+    kind: z.enum(["signal", "info"]).optional(), // default "signal"; "info" = weight=0, sin impacto en score
   })),
   sources: z.array(z.object({
     name: z.string(), // "cmf-alertas-plataformas", "phishtank", "bce-bde", etc.
@@ -94,12 +96,20 @@ const BaseToolResponse = z.object({
     fetchedAt: z.string().datetime(), // ISO 8601 UTC
     dataAvailable: z.boolean(), // false si la fuente cayó / cuota agotada
     staleSince: z.string().datetime().optional(), // si se sirvió cache expirado
+    documentId: z.string().optional(), // ancla al catálogo legal (`legal-catalog.ts`)
+    articulo: z.string().optional(), // ej. "Artículo 5 — RPSF" (legible humano)
   })),
   disclaimer: z.string().optional(), // obligatorio en analyze_business_model
 });
 ```
 
 Cada tool extiende este shape con campos específicos (ej: `inBlacklist`, `domainAge`, `rates`, etc.).
+
+**Catálogo legal único** ([`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts), tipos en [`legal-types.ts`](mcp-server/src/lib/legal-types.ts)). Cada entrada tiene `id`, `kind`, `titulo`, `autoridad`, `vigenciaDesde`, `vigenciaHasta?`, `urlOficial?`, `localPath?` y `citas[]`. Cada `Cita` lleva `articulo` (legible), `texto` verbatim y `ubicacion: { localPath, lineaInicio, lineaFin }`. Un test de integridad valida que cada `cita.texto` aparece literal en su `localPath` — sin LLM en el path de citación, todo el texto se ancla a archivo versionado en [`data/normativas/`](data/normativas/).
+
+**Output del orquestador `full_evaluation`** agrega un campo top-level `legalReferences: ResolvedLegalReference[]`. Cada entry resuelve un ID del catálogo y agrega `citasInvocadas[]` (subset de citas filtrado por los `articulo` que aparecieron en `Source.articulo` durante esa corrida). La resolución es lookup puro y determinístico — mismo input → mismo `legalReferences[]` byte-exact (validado en `citations-determinism.test.ts`, 1000 invocaciones).
+
+**`Reason.kind`** discrimina entre `"signal"` (default; corresponde a una regla del motor con `weight ≠ 0`) e `"info"` (`weight = 0`, no afecta score). Las info reasons se emiten cuando una fuente respondió OK pero ninguna regla matcheó — describen qué se verificó para que el output no quede mudo. Construir vía helper `infoReason(toolName, aspect, message, opts?)` en `src/scoring/info-reasons.ts`. Schema retro-compatible: reasons sin `kind` se interpretan como `"signal"`. Confianza del orquestador se calcula sobre `sources[].dataAvailable`, no sobre el éxito de los handlers.
 
 ### 3.3 Modelo de errores
 

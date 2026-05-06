@@ -23,6 +23,7 @@ export const OutputSchema = BaseToolResponse.extend({
     "emisor_tarjetas",
     "ecommerce_credito",
     "prestamista_no_regulado",
+    "no_fiscalizada",
     "desconocido",
   ]),
   estadoRPSF: z.enum(["autorizada", "en_revision", "no_registrada"]),

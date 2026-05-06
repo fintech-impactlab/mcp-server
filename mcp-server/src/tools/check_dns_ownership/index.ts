@@ -1,6 +1,7 @@
 import { NICError, WHOISError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 
@@ -57,9 +58,32 @@ export function createCheckDnsOwnershipTool(
       };
       const scored: ScoreResult = score(facts);
 
+      // Info reason: si la fuente respondió OK y no disparó ninguna regla DNS.
+      const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
+      const dnsRuleFired = [...firedRules].some((id) => id.startsWith("dns."));
+      const infoReasons = [];
+      if (lookup.dataAvailable && !dnsRuleFired) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            useRdap ? "rdap_verified" : "whois_verified",
+            useRdap
+              ? "Registro RDAP de NIC Chile verificado, sin anonimato detectado"
+              : "WHOIS internacional verificado, sin anonimato detectado",
+            {
+              fundamento: useRdap
+                ? "Se consultó RDAP de NIC Chile; el registrante no figura redacted ni vía privacy proxy."
+                : "Se consultó WHOIS; el registrante no figura redacted ni vía privacy proxy.",
+              legalRefs: [useRdap ? "EXT-NIC-CL-POL" : "EXT-RDAP-RFC-7480"],
+            },
+          ),
+        );
+      }
+
       const sources = [
         {
           name: useRdap ? "rdap-nic-cl" : "whois",
+          documentId: useRdap ? "EXT-NIC-CL-POL" : "EXT-RDAP-RFC-7480",
           fetchedAt,
           dataAvailable: lookup.dataAvailable,
         },
@@ -77,7 +101,7 @@ export function createCheckDnsOwnershipTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         domain,
         protocol: useRdap ? "rdap" : "whois",

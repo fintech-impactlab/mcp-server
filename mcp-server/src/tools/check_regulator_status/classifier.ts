@@ -7,6 +7,7 @@ export type EntityType =
   | "emisor_tarjetas"
   | "ecommerce_credito"
   | "prestamista_no_regulado"
+  | "no_fiscalizada"
   | "desconocido";
 
 export type RpsfEstado = "autorizada" | "en_revision" | "no_registrada";
@@ -20,6 +21,12 @@ export interface ClassifierInput {
   nombre: string;
   rpsfTipoEntidad: string | null;
   rpsfEstado: RpsfEstado;
+  /**
+   * Indica si la fuente RPSF respondió OK. Permite diferenciar
+   * `no_fiscalizada` (RPSF respondió y no figura) de `desconocido`
+   * (RPSF cayó, no podemos saberlo).
+   */
+  rpsfDataAvailable: boolean;
   giros: ReadonlyArray<SiiGiro>;
   enListaBancos: boolean;
 }
@@ -112,5 +119,11 @@ export function classifyEntity(input: ClassifierInput): EntityType {
     return "ecommerce_credito";
   }
   if (isLendingGiro(input.giros)) return "prestamista_no_regulado";
+  // Si RPSF respondió y no figura (estado por default = "no_registrada"),
+  // marcamos `no_fiscalizada`: información accionable. `desconocido` queda
+  // reservado para cuando RPSF no respondió (no se pudo verificar).
+  if (input.rpsfDataAvailable && input.rpsfEstado === "no_registrada") {
+    return "no_fiscalizada";
+  }
   return "desconocido";
 }

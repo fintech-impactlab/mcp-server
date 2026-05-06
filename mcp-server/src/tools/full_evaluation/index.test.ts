@@ -308,16 +308,181 @@ describe("full_evaluation — flujo completo URL con BM", () => {
   });
 });
 
+describe("full_evaluation — propaga regulation.reasons (Slice O1)", () => {
+  it("incluye los reasons de get_applicable_regulation en breakdown sin alterar el score total", async () => {
+    const tool = createFullEvaluationTool({
+      checkBlacklist: async () => blacklistEmpty,
+      checkWhitelist: async () => whitelistEmpty,
+      analyzeDomain: async (): Promise<DomainOutput> => ({
+        score: -40,
+        reasons: [
+          { ruleId: "domain.young_lt7d", weight: -40, message: "x", fundamento: "x" },
+        ],
+        sources: [],
+        domain: "scam.example",
+        domainAgeDays: 2,
+        creationDate: "2026-05-04",
+        registrar: "x",
+        sslStatus: "valid",
+        sslIssuer: "Let's Encrypt",
+        redirects: [],
+        finalUrl: "https://scam.example/",
+      }),
+      checkDnsOwnership: async (): Promise<DnsOutput> => ({
+        score: 0,
+        reasons: [],
+        sources: [],
+        domain: "scam.example",
+        protocol: "whois",
+        registrant: null,
+        registrantCountry: null,
+        registrationDate: "2026-05-04",
+        adminAnonymized: false,
+        adminContacts: [],
+      }),
+      checkRegulatorStatus: async (): Promise<RegulatorOutput> => ({
+        score: 0,
+        reasons: [],
+        sources: [],
+        query: "scam.example",
+        tipoEntidad: "fintech",
+        estadoRPSF: "no_registrada",
+        numeroRegistro: null,
+        membresiaFinteChile: false,
+        giroConsistente: false,
+        normativasAplicables: [],
+      }),
+      analyzeBusinessModel: async () => ({
+        score: 0,
+        reasons: [],
+        sources: [],
+        disclaimer: "x",
+        flags: {
+          promesaRentabilidad: {
+            amountPct: 0,
+            period: null,
+            annualizedPct: null,
+            tasaMaximaConvencionalPct: null,
+            excedeTMC: false,
+            matches: [],
+          },
+          estructuraReferidos: false,
+          lenguajeVago: { detected: false, matches: [] },
+          ausenciaInfoLegal: {
+            detected: false,
+            hasRut: true,
+            hasRazonSocial: true,
+            hasDireccion: true,
+          },
+        },
+      }),
+      getApplicableRegulation: async (): Promise<RegulationOutput> => ({
+        score: 0,
+        reasons: [
+          {
+            ruleId: "regulation.applicable_catalog",
+            weight: 0,
+            message: "Catálogo aplicable a (fintech, otro)",
+            fundamento: "Lookup determinístico en regulation-matrix",
+            legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"],
+          },
+        ],
+        sources: [],
+        tipoEntidad: "fintech",
+        situacion: "otro",
+        leyesAplicables: [],
+        normativasCMF: [],
+        derechos: ["dummy"],
+        plazosLegales: [],
+      }),
+      getOfficialComplaintChannels: async () => channelsStub,
+    });
+    const log = captureLogs();
+    let response;
+    try {
+      response = await tool.handler({
+        input: "https://scam.example/",
+        text: "Información sin señales",
+        situacion: undefined,
+      });
+    } finally {
+      log.restore();
+    }
+    const propagated = response.breakdown
+      .flatMap((b) => b.reasons)
+      .find((r) => r.ruleId === "regulation.applicable_catalog");
+    assert.ok(propagated, "regulation.reasons no se propagó al breakdown");
+    assert.equal(propagated.weight, 0);
+    assert.deepEqual(propagated.legalRefs, [
+      "CL-LEY-21521-art-5",
+      "CMF-NCG-514-2024",
+    ]);
+    // Score total no cambia: solo etapa_1 aporta (-40), regulation peso 0.
+    assert.equal(response.totalScore, -40);
+  });
+});
+
 describe("full_evaluation — degraded paths", () => {
-  it("herramienta cae → sourcesFailed se cuenta y confianza baja, pero handler no rompe", async () => {
+  it("fuentes con dataAvailable:false bajan la confianza (nueva semántica basada en sources)", async () => {
+    // Stub: 4 sources OK + 4 caídas → confianza esperada 50.
+    const blacklistMixed: BlacklistOutput = {
+      ...blacklistEmpty,
+      sources: [
+        { name: "cmf-alertas", fetchedAt: "x", dataAvailable: true },
+        { name: "phishtank", fetchedAt: "x", dataAvailable: false },
+        { name: "urlhaus", fetchedAt: "x", dataAvailable: false },
+      ],
+    };
+    const whitelistMixed: WhitelistOutput = {
+      ...whitelistEmpty,
+      sources: [
+        { name: "cmf-rpsf", fetchedAt: "x", dataAvailable: true },
+        { name: "fintechile", fetchedAt: "x", dataAvailable: false },
+      ],
+    };
+    const regulatorMixed: RegulatorOutput = {
+      score: 0,
+      reasons: [],
+      sources: [
+        { name: "sii-giros", fetchedAt: "x", dataAvailable: false },
+      ],
+      query: "Empresa X",
+      tipoEntidad: "desconocido",
+      estadoRPSF: "no_registrada",
+      numeroRegistro: null,
+      membresiaFinteChile: false,
+      giroConsistente: false,
+      normativasAplicables: [],
+    };
+    const channelsMixed: ChannelsOutput = {
+      ...channelsStub,
+      sources: [{ name: "channels-catalog", fetchedAt: "x", dataAvailable: true }],
+    };
+    const tool = createFullEvaluationTool({
+      checkBlacklist: async () => blacklistMixed,
+      checkWhitelist: async () => whitelistMixed,
+      checkRegulatorStatus: async () => regulatorMixed,
+      getOfficialComplaintChannels: async () => channelsMixed,
+    });
+    const response = await tool.handler({ input: "Empresa X", text: undefined, situacion: undefined });
+    // Sources expuestas: cmf-alertas OK, phishtank caída, urlhaus caída,
+    // cmf-rpsf OK, fintechile caída, sii-giros caída, channels-catalog OK.
+    // 3 OK / 7 totales → 43% (no 50, porque el dedupe agrupa).
+    assert.ok(
+      response.confianza < 50,
+      `esperaba confianza < 50 (mitad caídas), got ${response.confianza}`,
+    );
+    assert.ok(response.confianza > 0);
+  });
+
+  it("handler que tira excepción NO penaliza confianza (no contribuye sources al output)", async () => {
+    // Esto contrasta con la versión vieja: antes attempted/succeeded la castigaba,
+    // ahora confianza solo refleja `dataAvailable` de las sources expuestas.
     const tool = createFullEvaluationTool({
       checkBlacklist: async () => {
         throw new Error("offline");
       },
       checkWhitelist: async () => whitelistEmpty,
-      checkRegulatorStatus: async () => {
-        throw new Error("offline");
-      },
       getOfficialComplaintChannels: async () => channelsStub,
     });
     const log = captureLogs();
@@ -327,11 +492,14 @@ describe("full_evaluation — degraded paths", () => {
     } finally {
       log.restore();
     }
-    // attempted: blacklist + whitelist + regulator + channels = 4
-    // succeeded: whitelist + channels = 2
-    assert.equal(response.confianza, 50);
+    // Sources expuestas: cmf-rpsf (OK) + channels-catalog (OK) → 100%.
+    assert.equal(response.confianza, 100);
+    // toolsAttempted/Succeeded sigue en el log para telemetría interna.
+    const call = log.events.find((e) => e.name === "tool.call");
+    assert.ok(typeof call?.payload["toolsAttempted"] === "number");
+    assert.ok(typeof call?.payload["toolsSucceeded"] === "number");
     const errs = log.events.filter((e) => e.name === "tool.error");
-    assert.ok(errs.length >= 2);
+    assert.ok(errs.length >= 1);
   });
 });
 

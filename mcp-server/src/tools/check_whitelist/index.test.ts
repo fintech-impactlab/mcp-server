@@ -123,8 +123,9 @@ describe("check_whitelist handler — happy path", () => {
     });
     const response = await tool.handler({ input: "76.123.456-7" });
     assert.equal(response.score, 30);
-    assert.equal(response.reasons.length, 1);
-    assert.equal(response.reasons[0]?.ruleId, "whitelist.rpsf_autorizada");
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 1);
+    assert.equal(signalReasons[0]?.ruleId, "whitelist.rpsf_autorizada");
   });
 
   it("agrega +15 si la entidad es miembro de FinteChile", async () => {

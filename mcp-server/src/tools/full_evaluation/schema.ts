@@ -7,6 +7,33 @@ import {
 } from "../get_applicable_regulation/schema.js";
 import { ChannelRefSchema } from "../get_official_complaint_channels/schema.js";
 
+const CitaUbicacionSchema = z.object({
+  localPath: z.string(),
+  lineaInicio: z.number().int().nonnegative(),
+  lineaFin: z.number().int().nonnegative(),
+});
+
+const CitaSchema = z.object({
+  articulo: z.string().min(1),
+  texto: z.string().min(1),
+  ubicacion: CitaUbicacionSchema,
+  extractoCorto: z.string().optional(),
+});
+
+export const ResolvedLegalReferenceSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(["ley", "ncg", "circular", "resolucion", "manual", "protocolo", "tos"]),
+  titulo: z.string().min(1),
+  autoridad: z.string().min(1),
+  vigenciaDesde: z.string().min(1),
+  vigenciaHasta: z.string().optional(),
+  urlOficial: z.string().url().optional(),
+  localPath: z.string().optional(),
+  citas: z.array(CitaSchema).readonly(),
+  /** Subset de `citas` filtrado por los artículos efectivamente invocados. */
+  citasInvocadas: z.array(CitaSchema).readonly(),
+});
+
 export const InputShape = {
   /** URL, RUT o nombre de la entidad. */
   input: z.string().min(1).max(2_000),
@@ -42,6 +69,14 @@ export const OutputSchema = z.object({
   tipoEntidad: z.enum(ENTITY_TYPES).nullable(),
   situacion: z.enum(SITUACIONES_LIST),
   recomendaciones: z.array(ChannelRefSchema).readonly(),
+  /**
+   * Referencias normativas resueltas y dedupeadas. Se construyen agregando
+   * `Source.documentId` + `Reason.legalRefs[]` de todas las stages,
+   * resolviendo cada ID via el catálogo legal. Las `citasInvocadas[]` son el
+   * subset de citas del catálogo cuyos `articulo` aparecen en algún
+   * `Source.articulo` de esta corrida. Sin LLM, sin reformateo: lookup puro.
+   */
+  legalReferences: z.array(ResolvedLegalReferenceSchema).readonly(),
   disclaimer: z.string(),
 });
 

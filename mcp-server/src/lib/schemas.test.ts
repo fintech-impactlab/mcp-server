@@ -63,6 +63,31 @@ describe("Source schema", () => {
     const r = Source.safeParse({ ...validSource, dataAvailable: "yes" });
     assert.equal(r.success, false);
   });
+
+  it("acepta documentId opcional anclado al catálogo", () => {
+    const r = Source.parse({ ...validSource, documentId: "CMF-NCG-514-2024" });
+    assert.equal(r.documentId, "CMF-NCG-514-2024");
+  });
+
+  it("rechaza documentId vacío", () => {
+    const r = Source.safeParse({ ...validSource, documentId: "" });
+    assert.equal(r.success, false);
+  });
+
+  it("acepta articulo legible humano", () => {
+    const r = Source.parse({
+      ...validSource,
+      documentId: "CMF-NCG-514-2024",
+      articulo: "§ III.C.1 — Inscripción en el Registro PSBI",
+    });
+    assert.equal(r.articulo, "§ III.C.1 — Inscripción en el Registro PSBI");
+  });
+
+  it("permite source sin documentId (backward-compat)", () => {
+    const r = Source.parse(validSource);
+    assert.equal(r.documentId, undefined);
+    assert.equal(r.articulo, undefined);
+  });
 });
 
 describe("Reason schema", () => {
@@ -85,6 +110,29 @@ describe("Reason schema", () => {
   it("accepts negative integer weight", () => {
     const r = Reason.parse({ ...validReason, weight: -25 });
     assert.equal(r.weight, -25);
+  });
+
+  it("acepta legalRefs opcional con IDs del catálogo", () => {
+    const r = Reason.parse({
+      ...validReason,
+      legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"],
+    });
+    assert.deepEqual(r.legalRefs, ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"]);
+  });
+
+  it("acepta legalRefs vacío", () => {
+    const r = Reason.parse({ ...validReason, legalRefs: [] });
+    assert.deepEqual(r.legalRefs, []);
+  });
+
+  it("rechaza legalRefs con string vacío", () => {
+    const r = Reason.safeParse({ ...validReason, legalRefs: [""] });
+    assert.equal(r.success, false);
+  });
+
+  it("permite reason sin legalRefs (backward-compat)", () => {
+    const r = Reason.parse(validReason);
+    assert.equal(r.legalRefs, undefined);
   });
 });
 

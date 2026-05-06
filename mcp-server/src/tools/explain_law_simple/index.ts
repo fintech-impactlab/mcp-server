@@ -67,6 +67,8 @@ export function createExplainLawSimpleTool(
 
         const source = {
           name: SOURCE_NAME,
+          documentId: "EXT-BCN-LEY-FACIL",
+          ...(articulo !== undefined ? { articulo: `Artículo ${articulo}` } : {}),
           url: SOURCE_URL,
           fetchedAt,
           dataAvailable: true,
@@ -109,6 +111,7 @@ export function createExplainLawSimpleTool(
           sources: [
             {
               name: SOURCE_NAME,
+              documentId: "EXT-BCN-LEY-FACIL",
               url: SOURCE_URL,
               fetchedAt,
               dataAvailable: false,

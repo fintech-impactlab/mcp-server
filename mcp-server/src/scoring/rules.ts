@@ -60,6 +60,7 @@ export interface RegulatorFacts {
     | "emisor_tarjetas"
     | "ecommerce_credito"
     | "prestamista_no_regulado"
+    | "no_fiscalizada"
     | "desconocido";
   estadoRPSF?: "autorizada" | "en_revision" | "no_registrada";
   giroConsistente?: boolean;
@@ -81,7 +82,27 @@ export interface Rule {
   readonly weight: number;
   readonly reason: string;
   readonly fundamento: string;
+  /**
+   * IDs del catálogo legal (`mcp-server/src/lib/legal-catalog.ts`) que
+   * sustentan esta regla. Obligatorio para `regulator|whitelist|blacklist|entity`.
+   * Vacío para señales técnicas sin base normativa directa (`domain|dns`)
+   * y heurísticas (`business_model.lenguaje_vago`).
+   */
+  readonly legalRefs?: ReadonlyArray<string>;
   readonly predicate: (facts: Facts) => boolean;
+}
+
+const CATEGORIES_REQUIRING_LEGAL_REFS = new Set<RuleCategory>([
+  "regulator",
+  "whitelist",
+  "blacklist",
+  "entity",
+]);
+
+/** True si la regla cumple el contrato de citación según su categoría. */
+export function ruleHasRequiredLegalRefs(rule: Rule): boolean {
+  if (!CATEGORIES_REQUIRING_LEGAL_REFS.has(rule.category)) return true;
+  return Array.isArray(rule.legalRefs) && rule.legalRefs.length >= 1;
 }
 
 const blacklistHas = (sources: ReadonlyArray<string> | undefined, name: string): boolean =>
@@ -96,6 +117,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Dominio registrado hace menos de 7 días",
     fundamento:
       "Dominios <7d correlacionan fuertemente con campañas activas de phishing/scam; vida media de un dominio fraudulento es típicamente <30d.",
+    legalRefs: [],
     predicate: (f) => {
       const age = f.domain?.ageDays;
       return typeof age === "number" && age < 7;
@@ -108,6 +130,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Dominio registrado hace menos de 30 días (≥7)",
     fundamento:
       "Dominios <30d son incompatibles con un negocio financiero establecido. Excluye <7d (regla anterior) para evitar doble cómputo.",
+    legalRefs: [],
     predicate: (f) => {
       const age = f.domain?.ageDays;
       return typeof age === "number" && age >= 7 && age < 30;
@@ -120,6 +143,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Certificado SSL emitido por Let's Encrypt sobre dominio reciente",
     fundamento:
       "Let's Encrypt es legítimo, pero su disponibilidad gratuita + automatizada hace que la mayoría de scams emitan SSL ahí. Combinado con dominio <90d es señal débil pero notoria.",
+    legalRefs: [],
     predicate: (f) => {
       const age = f.domain?.ageDays;
       const issuer = f.domain?.sslIssuer;
@@ -138,6 +162,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Certificado SSL autofirmado",
     fundamento:
       "Un sitio que pide datos personales con SSL autofirmado no pasa la verificación de cadena de confianza; típico de servidores improvisados o intencionalmente opacos.",
+    legalRefs: [],
     predicate: (f) => f.domain?.sslStatus === "self_signed",
   },
   {
@@ -147,6 +172,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Certificado SSL inválido o expirado",
     fundamento:
       "SSL inválido o vencido invalida cualquier promesa de seguridad de transporte y suele indicar abandono operacional o fraude descuidado.",
+    legalRefs: [],
     predicate: (f) =>
       f.domain?.sslStatus === "invalid" || f.domain?.sslStatus === "expired",
   },
@@ -157,6 +183,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Sitio sin certificado SSL",
     fundamento:
       "Cualquier sitio que reciba RUT/credenciales sin TLS no es viable como contraparte financiera, ni siquiera en 2026.",
+    legalRefs: [],
     predicate: (f) => f.domain?.sslStatus === "missing",
   },
   {
@@ -166,6 +193,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Cadena de redirecciones >3 hops",
     fundamento:
       "Cadenas largas de redirección entre dominios opacan el destino real y son típicas de campañas de scam que lavan tráfico via cloaking. ≥4 hops es señal débil pero notoria.",
+    legalRefs: [],
     predicate: (f) => {
       const rc = f.domain?.redirectCount;
       return typeof rc === "number" && rc >= 4;
@@ -180,6 +208,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Aparece en CMF — Plataformas de Inversión No Reguladas",
     fundamento:
       "La CMF publica este listado tras detectar oferta pública de inversión sin autorización. Inclusión = banderazo regulatorio chileno explícito.",
+    legalRefs: ["CL-LEY-18045-art-27", "CMF-NCG-514-2024", "CMF-ALERTAS-PIF"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-plataformas-no-reguladas"),
   },
   {
@@ -189,6 +218,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Aparece en CMF — Créditos Fraudulentos",
     fundamento:
       "Listado oficial CMF de operadores de crédito fraudulento. Inclusión es señal regulatoria dura.",
+    legalRefs: ["CL-LEY-19496-art-28", "CMF-ALERTAS-CF"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-creditos-fraudulentos"),
   },
   {
@@ -198,6 +228,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "URL reportada en PhishTank",
     fundamento:
       "PhishTank confirma reportes vía verificación comunitaria. False positives son raros en URLs verified.",
+    legalRefs: ["EXT-PHISHTANK-TOS"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "phishtank"),
   },
   {
@@ -207,6 +238,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Aparece en CMF — Apps de Créditos No Reguladas",
     fundamento:
       "Listado oficial CMF de apps de crédito sin autorización formal. Misma fuerza señalética que Plataformas / Créditos Fraudulentos.",
+    legalRefs: ["CL-LEY-19496-art-28", "CMF-ALERTAS-AC"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-apps-creditos-no-reguladas"),
   },
   {
@@ -216,6 +248,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Aparece en CMF — Otras Entidades No Reguladas",
     fundamento:
       "Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado que no encajan en los otros 3 listados.",
+    legalRefs: ["CL-LEY-21521-art-28", "CMF-ALERTAS-OE"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "cmf-otras-entidades-no-reguladas"),
   },
   {
@@ -225,6 +258,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "URL reportada en URLhaus",
     fundamento:
       "URLhaus de abuse.ch lista URLs activas asociadas a malware. Hit confirma intencionalidad maliciosa, peso menor que listados regulatorios chilenos pero suma.",
+    legalRefs: ["EXT-URLHAUS-TOS"],
     predicate: (f) => blacklistHas(f.blacklist?.sources, "urlhaus"),
   },
 
@@ -236,6 +270,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros)",
     fundamento:
       "Estado 'autorizada' bajo Ley 21.521 implica revisión formal CMF aprobada. Es la señal positiva más fuerte de la lista de la CMF.",
+    legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024", "CMF-RPSF-LISTADO"],
     predicate: (f) => f.whitelist?.rpsfStatus === "autorizada",
   },
   {
@@ -245,6 +280,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Solicitud presente en RPSF, en revisión por CMF",
     fundamento:
       "Período transitorio Ley 21.521: la entidad opera legalmente mientras CMF resuelve. No es garantía pero es señal positiva intermedia (179 autorizadas + 300 en revisión a feb 2025).",
+    legalRefs: ["CL-LEY-21521-art-5", "CMF-RPSF-LISTADO"],
     predicate: (f) => f.whitelist?.rpsfStatus === "en_revision",
   },
   {
@@ -254,6 +290,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Miembro activo de FinteChile",
     fundamento:
       "Membresía gremial implica al menos un nivel mínimo de escrutinio entre pares; señal positiva intermedia mientras la Ley Fintech termina de implementarse.",
+    legalRefs: ["CL-LEY-21521"],
     predicate: (f) => f.whitelist?.fintechileMembership === true,
   },
 
@@ -265,6 +302,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Registrante público con país declarado CL",
     fundamento:
       "Que el registrante tenga país CL en WHOIS/RDAP no garantiza legitimidad pero descarta operadores extranjeros opacos; señal positiva débil compatible con un servicio financiero local.",
+    legalRefs: ["EXT-NIC-CL-POL"],
     predicate: (f) => f.dns?.registrantCountry === "CL",
   },
   {
@@ -274,6 +312,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Registrante WHOIS/RDAP anonimizado vía privacy proxy",
     fundamento:
       "Privacidad proxy es legítima en general, pero un proveedor financiero serio publica datos verificables del registrante. Anonimato + servicio financiero = bandera de opacidad.",
+    legalRefs: [],
     predicate: (f) => f.dns?.registrantAnonymized === true,
   },
 
@@ -285,6 +324,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Inicio de actividades vigente en el SII",
     fundamento:
       "Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. Necesario, no suficiente.",
+    legalRefs: ["CL-CT-66"],
     predicate: (f) => f.entity?.siiStatus === "activo",
   },
   {
@@ -294,6 +334,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Estado 'suspendido' en el SII",
     fundamento:
       "Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado.",
+    legalRefs: ["CL-CT-66"],
     predicate: (f) => f.entity?.siiStatus === "suspendido",
   },
   {
@@ -303,6 +344,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Sin inicio de actividades en el SII",
     fundamento:
       "Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente.",
+    legalRefs: ["CL-CT-66"],
     predicate: (f) => f.entity?.siiStatus === "sin_inicio",
   },
   // ── Business Model ─────────────────────────────────────────────────────
@@ -313,6 +355,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Promesas de rentabilidad incompatibles con el mercado regulado",
     fundamento:
       "Una rentabilidad anualizada que excede la tasa máxima convencional o promete riesgo cero es contradictoria con el funcionamiento del mercado financiero chileno; señal regulatoria dura cuando se detecta en oferta pública.",
+    legalRefs: ["CL-LEY-18010", "CL-LEY-19496-art-28"],
     predicate: (f) => f.businessModel?.promesaRentabilidadIrreal === true,
   },
   {
@@ -322,6 +365,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Modelo de ingresos basado en referidos / multinivel",
     fundamento:
       "La compensación por reclutamiento (en lugar de venta de servicios) es el patrón estructural de esquemas piramidales; bajo ley chilena (Ley 19.496 + jurisprudencia CMF) es indicio de fraude.",
+    legalRefs: ["CL-LEY-19496-art-28"],
     predicate: (f) => f.businessModel?.estructuraReferidos === true,
   },
   {
@@ -331,6 +375,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Comunicación con lenguaje aspiracional vago, urgencia artificial",
     fundamento:
       "'Oportunidad única', 'cupos limitados', 'libertad financiera' son tokens recurrentes en marketing fraudulento porque buscan compresión temporal de la decisión y desactivan el escrutinio del usuario.",
+    legalRefs: [],
     predicate: (f) => f.businessModel?.lenguajeVago === true,
   },
   {
@@ -340,6 +385,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Sitio sin RUT, razón social ni dirección física",
     fundamento:
       "Cualquier prestador de servicios financieros en Chile debe identificarse formalmente. Ausencia simultánea de RUT + razón social + dirección física es incompatible con un negocio financiero legítimo (Ley 19.496 art. 28).",
+    legalRefs: ["CL-LEY-19496-art-17"],
     predicate: (f) => f.businessModel?.ausenciaInfoLegal === true,
   },
 
@@ -351,6 +397,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Autorizada en RPSF con giro tributario consistente con la categoría",
     fundamento:
       "RPSF autorizada + giro SII coherente con la actividad declarada (ej. fintech con código 6491/6492 o asesor con 6499) descarta el patrón típico de empresas autorizadas pero operando fuera de su giro.",
+    legalRefs: ["CL-LEY-21521-art-5", "CL-CT-66", "CMF-NCG-514-2024"],
     predicate: (f) =>
       f.regulator?.estadoRPSF === "autorizada" && f.regulator?.giroConsistente === true,
   },
@@ -361,6 +408,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Operación que se presenta como fintech sin estar inscrita en RPSF",
     fundamento:
       "Bajo Ley 21.521 todo prestador de servicios fintech debe registrarse en RPSF (Plataformas, Custodios, Asesores, Iniciadores, Enrutadores). Operar como fintech sin registro es directamente irregular.",
+    legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"],
     predicate: (f) =>
       f.regulator?.tipoEntidad === "fintech" && f.regulator?.estadoRPSF === "no_registrada",
   },
@@ -371,6 +419,7 @@ export const rules: ReadonlyArray<Rule> = [
     reason: "Empresa con menos de 6 meses desde inicio de actividades",
     fundamento:
       "Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria.",
+    legalRefs: ["CL-CT-66"],
     predicate: (f) => {
       const months = f.entity?.ageMonths;
       return typeof months === "number" && months >= 0 && months < 6;

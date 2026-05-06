@@ -2,6 +2,7 @@ import type { Cache } from "../../lib/cache.js";
 import { CMFFetchError, FinteChileError } from "../../lib/errors.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import { score, type ScoreResult } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Facts } from "../../scoring/rules.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import type { Storage } from "../../lib/storage.js";
@@ -114,6 +115,8 @@ export function createCheckWhitelistTool(
       const sources = [
         {
           name: "cmf-rpsf",
+          documentId: "CMF-RPSF-LISTADO",
+          articulo: "Artículo 5 — Registro de Prestadores de Servicios Financieros (Ley 21.521)",
           url: RPSF_SOURCE_URL,
           fetchedAt,
           dataAvailable: rpsfResult.dataAvailable,
@@ -129,6 +132,36 @@ export function createCheckWhitelistTool(
       const facts: Facts = { whitelist: factsWhitelist };
       const scored: ScoreResult = score(facts);
 
+      // Info reasons: por cada fuente OK que no produjo match, emitir razón informativa.
+      const infoReasons = [];
+      if (rpsfResult.dataAvailable && rpsfResult.entries.length === 0) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "cmf_rpsf_no_match",
+            "No figura en el RPSF de la CMF",
+            {
+              fundamento:
+                "Se consultaron los listados oficiales del Registro de Prestadores de Servicios Financieros (autorizadas + en revisión). El input no figura.",
+              legalRefs: ["CL-LEY-21521-art-5", "CMF-NCG-514-2024"],
+            },
+          ),
+        );
+      }
+      if (fintechileResult.dataAvailable && fintechileResult.matches.length === 0) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "fintechile_no_match",
+            "No figura como miembro activo de FinteChile",
+            {
+              fundamento:
+                "Se consultó el listado público de socios de FinteChile. El input no figura.",
+            },
+          ),
+        );
+      }
+
       logger.event("tool.call", {
         toolName: TOOL_NAME,
         inputHash,
@@ -141,7 +174,7 @@ export function createCheckWhitelistTool(
 
       return {
         score: scored.score,
-        reasons: [...scored.reasons],
+        reasons: [...scored.reasons, ...infoReasons],
         sources,
         inWhitelist: entries.length > 0,
         entries,

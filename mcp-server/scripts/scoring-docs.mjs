@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { rules } from "../dist/scoring/rules.js";
+import { legalCatalog } from "../dist/lib/legal-catalog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..");
@@ -15,6 +16,18 @@ const target = resolve(repoRoot, "SCORING.md");
 
 const escape = (s) => String(s).replace(/\|/g, "\\|").replace(/\n/g, " ");
 const formatWeight = (w) => (w > 0 ? `+${w}` : `${w}`);
+
+function formatLegalRefs(refs) {
+  if (!refs || refs.length === 0) return "—";
+  return refs
+    .map((id) => {
+      const entry = legalCatalog.get(id);
+      if (!entry) return `\`${id}\` *(no en catálogo)*`;
+      const link = entry.localPath ? `../${entry.localPath}` : entry.urlOficial;
+      return link ? `[\`${id}\`](${link})` : `\`${id}\``;
+    })
+    .join("<br>");
+}
 
 const byCategory = new Map();
 for (const rule of rules) {
@@ -50,17 +63,23 @@ lines.push(
   "- **Auditabilidad.** Cada regla incluye un `fundamento` (cita o argumento corto) que justifica el peso. Reglas no documentadas no se aceptan en PR.",
 );
 lines.push(
+  "- **Referencia normativa.** Reglas en categorías `regulator|whitelist|blacklist|entity` deben citar al menos una entrada del catálogo legal ([`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts)). El test [`legal-refs.test.ts`](mcp-server/src/scoring/__tests__/legal-refs.test.ts) lo exige.",
+);
+lines.push(
+  "- **Info reasons.** Las tools también emiten `Reason` con `kind: \"info\"` y `weight: 0` por cada fuente verificada que respondió OK pero no disparó una regla — auditables igual que las reglas, sin afectar el score. Se construyen vía `infoReason()` en [`mcp-server/src/scoring/info-reasons.ts`](mcp-server/src/scoring/info-reasons.ts). Reasons sin `kind` se interpretan como `\"signal\"`.",
+);
+lines.push(
   "- **Cobertura.** Cada regla tiene un test afirmativo y uno negativo en [`mcp-server/src/scoring/__tests__/rules.test.ts`](mcp-server/src/scoring/__tests__/rules.test.ts). Cobertura objetivo 100% sobre `rules.ts` y `engine.ts` (CLAUDE.md).",
 );
 lines.push("");
 
 lines.push("## Catálogo");
 lines.push("");
-lines.push("| id | category | weight | reason | fundamento |");
-lines.push("|---|---|---:|---|---|");
+lines.push("| id | category | weight | reason | fundamento | referencia normativa |");
+lines.push("|---|---|---:|---|---|---|");
 for (const rule of rules) {
   lines.push(
-    `| \`${rule.id}\` | ${rule.category} | ${formatWeight(rule.weight)} | ${escape(rule.reason)} | ${escape(rule.fundamento)} |`,
+    `| \`${rule.id}\` | ${rule.category} | ${formatWeight(rule.weight)} | ${escape(rule.reason)} | ${escape(rule.fundamento)} | ${formatLegalRefs(rule.legalRefs)} |`,
   );
 }
 lines.push("");
