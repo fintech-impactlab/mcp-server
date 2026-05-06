@@ -11,6 +11,7 @@
 - [Filosofía de diseño](#filosofía-de-diseño)
 - [Foco regulatorio: agnóstico al regulador](#foco-regulatorio-agnóstico-al-regulador)
 - [Funcionalidades](#funcionalidades)
+- [Cómo conectarse](#cómo-conectarse)
 - [Sistema de scoring](#sistema-de-scoring)
 - [Lo que el MCP NO hace](#lo-que-el-mcp-no-hace)
 - [Casos de uso](#casos-de-uso)
@@ -304,6 +305,18 @@ Versión "tolerante" de `full_evaluation`. Usa Claude (Haiku 4.5) para clasifica
 
 ---
 
+## Cómo conectarse
+
+El MCP corre en Azure Container Apps con autenticación Bearer obligatoria. Cualquier cliente MCP — Claude Code, Cursor, Claude Desktop, agente custom con `@modelcontextprotocol/sdk`, o curl puro — puede consumirlo. El handshake es el estándar Streamable HTTP de MCP (`initialize` → `notifications/initialized` → `tools/list` / `tools/call`), con sesión stateful vía header `Mcp-Session-Id`.
+
+**Guía completa para clientes externos:** [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md). Cubre cómo solicitar credenciales (Bearer token + FQDN), verificación de red (`/health` público), configuración para Claude Code / Cursor / SDK / curl, ejemplos por cada flujo, y troubleshooting.
+
+**Documentación operativa interna** (Bicep, Key Vault, rotación de tokens, logs): [docs/CONNECTION.md](docs/CONNECTION.md). Solo para el equipo de plataforma.
+
+> ⚠️ El Bearer token se entrega manualmente por el equipo. No lo deduzcas, no lo compartas, no lo persistas fuera de tu vault. Si sospechás compromiso, pedí rotación inmediata.
+
+---
+
 ## Sistema de scoring
 
 El MCP calcula scores mediante un **motor de reglas determinístico**, no mediante un LLM.
@@ -318,7 +331,7 @@ Cada tool retorna un score parcial calculado por reglas explícitas y auditables
 - El score nunca es opaco — siempre viene acompañado de las razones que lo componen.
 - El cliente puede ignorar el score y razonar sobre los hechos crudos directamente.
 
-> Las reglas específicas (señal → puntos → fundamento) se documentan en `SCORING.md` (pendiente).
+> Las reglas específicas (señal → puntos → fundamento) están documentadas en [SCORING.md](SCORING.md), generado automáticamente desde [`mcp-server/src/scoring/rules.ts`](mcp-server/src/scoring/rules.ts).
 
 ---
 
@@ -533,10 +546,11 @@ Ambos scripts son idempotentes — re-correrlos no genera churn. Para agregar un
 
 ### Versión actual (Impact Lab)
 
-- 11 tools granulares + 1 tool de orquestación (`full_evaluation`).
-- Cobertura inicial de las fuentes principales (CMF Alertas Ciudadanas, CMF RPSF, SII, NIC Chile, FinteChile, PhishTank, Banco Central API BDE, BCN Ley Fácil API).
+- 11 tools granulares + 2 tools de orquestación (`full_evaluation` 100 % determinística, `smart_evaluation` con LLM Haiku 4.5 para inputs ambiguos).
+- Cobertura inicial de las fuentes principales (CMF Alertas Ciudadanas, CMF RPSF, SII, NIC Chile, FinteChile, PhishTank, URLhaus, Banco Central API BDE, BCN Ley Fácil API).
 - Cliente web demo de referencia (Next.js).
-- Documentación de reglas de scoring (`SCORING.md`).
+- 28 reglas de scoring deterministas documentadas en [SCORING.md](SCORING.md).
+- Guía de conexión para clientes externos en [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md).
 
 ### Inmediato post-lab
 
