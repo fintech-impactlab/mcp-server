@@ -1,0 +1,5 @@
+{
+  "fixture": "sample",
+  "purpose": "smoke test of loadFixture / loadJsonFixture / loadBinaryFixture helpers",
+  "values": [1, 2, 3]
+}
