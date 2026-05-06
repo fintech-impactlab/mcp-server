@@ -52,9 +52,8 @@ function Loading() {
   );
 }
 
-export function EvaluateForm() {
+export function EvaluateForm({ siteKey }: { siteKey: string | null }) {
   const [state, action, pending] = useActionState(evaluateAction, initial);
-  const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
   const inputRef = useRef<HTMLInputElement>(null);
   const wasPendingRef = useRef(false);
 
@@ -138,7 +137,7 @@ export function EvaluateForm() {
             <div className="g-recaptcha" data-sitekey={siteKey} />
           ) : (
             <p className="cc-config-warning">
-              reCAPTCHA no configurado: falta NEXT_PUBLIC_RECAPTCHA_SITE_KEY.
+              reCAPTCHA no configurado: falta RECAPTCHA_SITE_KEY en el entorno.
             </p>
           )}
 
