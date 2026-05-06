@@ -101,23 +101,23 @@ API REST oficial del Banco Central. Sin scraping, registro gratuito. Valida el p
 
 API JSON oficial de BCN Ley Fácil. Riesgo de alucinación nulo.
 
-- [ ] **3.1** Cliente API BCN Ley Fácil.
+- [x] **3.1** Cliente API BCN Ley Fácil.
   - **AC:** GET a `https://www.bcn.cl/api-leyfacil/...` por ley_id. Timeout 5s, retry backoff. Retorna Zod-validado con `BCNError` en fallos.
   - **Verify:** fixture `__fixtures__/bcn-ley-21521.json` parsea.
 
-- [ ] **3.2** Schemas Zod input + output.
+- [x] **3.2** Schemas Zod input + output.
   - **AC:** input: `{ leyId: string (regex /^\d{2,5}$/), articulo?: string }`. Output: explicación ciudadana, link a texto completo, tema, derechos, palabras clave.
   - **Verify:** input `leyId: "abc"` falla parse.
 
-- [ ] **3.3** Cache TTL 7 días en blob `audit`.
+- [x] **3.3** Cache TTL 7 días en blob `audit`.
   - **AC:** key `bcn:ley:<leyId>:<articulo|all>`. Las leyes no cambian rápido.
   - **Verify:** integración Azurite ok.
 
-- [ ] **3.4** Tool registrada + handler.
+- [x] **3.4** Tool registrada + handler.
   - **AC:** registrada en server MCP. Score = 0 (esta tool informa, no señala riesgo).
   - **Verify:** `tools/call name=explain_law_simple arguments={"leyId":"21521"}` retorna respuesta.
 
-- [ ] **3.5** Tests + trazas.
+- [x] **3.5** Tests + trazas.
   - **AC:** ≥3 tests (caso normal, ley inexistente, API caída).
   - **Verify:** `npm test -- explain_law_simple` verde.
 

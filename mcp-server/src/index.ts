@@ -9,6 +9,7 @@ import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
 import { registerTool } from "./server/registry.js";
+import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -50,6 +51,17 @@ async function main(): Promise<void> {
     }),
   );
   logger.event("server.tool_registered", { toolName: "get_market_reference_rates" });
+
+  registerTool(
+    mcp,
+    createExplainLawSimpleTool({
+      cache,
+      bcnConfig: {
+        baseUrl: "https://www.bcn.cl/api-leyfacil/servicio/ObtenerGuiaPublicadaHTML",
+      },
+    }),
+  );
+  logger.event("server.tool_registered", { toolName: "explain_law_simple" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
