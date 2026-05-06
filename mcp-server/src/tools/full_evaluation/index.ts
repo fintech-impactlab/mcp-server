@@ -3,7 +3,11 @@ import type { Cita, LegalReference } from "../../lib/legal-types.js";
 import { legalCatalog } from "../../lib/legal-catalog.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import type { ToolDefinition } from "../../server/registry.js";
-import type { EntityType } from "../check_regulator_status/classifier.js";
+import { requiereCMF, type EntityType } from "../check_regulator_status/classifier.js";
+import { rules as scoringRules } from "../../scoring/rules.js";
+import { levelFor, type LevelId, type LevelLabel } from "../../scoring/levels.js";
+import type { ScoreProfile } from "../../scoring/engine.js";
+import { infoReason } from "../../scoring/info-reasons.js";
 import type { Situacion } from "../../constants/regulation-matrix.js";
 
 import type { Output as BlacklistOutput } from "../check_blacklist/schema.js";
@@ -19,6 +23,7 @@ import type { Output as ChannelsOutput } from "../get_official_complaint_channel
 import {
   shortCircuitAfterStage1,
   shortCircuitAfterStage3,
+  verdictFromNivel,
   type Verdict,
 } from "./short-circuit.js";
 import {
@@ -76,7 +81,8 @@ export function createFullEvaluationTool(
       let totalScore = 0;
       let stoppedAt: Output["stoppedAt"] = null;
       let shortCircuitReason: string | null = null;
-      let verdictOverride: Verdict | null = null;
+      let nivelOverride: LevelId | null = null;
+      let etiquetaOverride: LevelLabel | null = null;
       let toolsAttempted = 0;
       let toolsSucceeded = 0;
 
@@ -91,7 +97,8 @@ export function createFullEvaluationTool(
       if (sc1 !== null) {
         stoppedAt = "etapa_1";
         shortCircuitReason = sc1.reason;
-        verdictOverride = sc1.verdict;
+        nivelOverride = sc1.nivel;
+        etiquetaOverride = sc1.etiqueta;
       }
 
       // ── Etapa 2 ─────────────────────────────────────────────────────────
@@ -117,7 +124,8 @@ export function createFullEvaluationTool(
         if (sc3 !== null) {
           stoppedAt = "etapa_3";
           shortCircuitReason = sc3.reason;
-          verdictOverride = sc3.verdict;
+          nivelOverride = sc3.nivel;
+          etiquetaOverride = sc3.etiqueta;
         }
       }
 
@@ -138,8 +146,37 @@ export function createFullEvaluationTool(
       toolsAttempted += stage5.attempted;
       toolsSucceeded += stage5.succeeded;
 
-      const verdict: Verdict =
-        verdictOverride ?? deriveVerdict(totalScore);
+      // Perfil: derivado del tipoEntidad clasificado en Etapa 3. Default
+      // conservador `cmf` cuando la etapa cayó (detectedTipo === null).
+      const requiere = detectedTipo === null ? true : requiereCMF(detectedTipo);
+      const escala: ScoreProfile = requiere ? "cmf" : "no_cmf";
+
+      // Cuando el perfil es no_cmf, las reglas CMF-only no aportan al score.
+      // Filtramos las reasons que pertenezcan a esas reglas y reajustamos el
+      // total. Las reasons siguen visibles al cliente como traza, pero su
+      // weight se descuenta del score consolidado.
+      const adjustedScore = adjustScoreForProfile(totalScore, allReasons, escala);
+
+      const profileInfoReason = infoReason(
+        TOOL_NAME,
+        "perfil",
+        detectedTipo === null
+          ? "Perfil CMF aplicado por default conservador (no se pudo clasificar la entidad)."
+          : `Perfil ${escala === "cmf" ? "CMF" : "No-CMF"} aplicado: tipoEntidad=${detectedTipo}.`,
+      );
+      allReasons.push(profileInfoReason);
+
+      let nivel: LevelId;
+      let etiqueta: LevelLabel;
+      if (nivelOverride !== null && etiquetaOverride !== null) {
+        nivel = nivelOverride;
+        etiqueta = etiquetaOverride;
+      } else {
+        const entry = levelFor(adjustedScore, escala);
+        nivel = entry.id;
+        etiqueta = entry.label;
+      }
+      const verdict: Verdict = verdictFromNivel(nivel);
       const finalSources = dedupeSources(allSources, fetchedAt);
       const confianza = computeConfianzaFromSources(finalSources);
 
@@ -150,15 +187,22 @@ export function createFullEvaluationTool(
         success: true,
         stoppedAt,
         verdict,
+        nivel,
+        escala,
+        requiereCMF: requiere,
         confianza,
-        totalScore,
+        totalScore: adjustedScore,
         toolsAttempted,
         toolsSucceeded,
       });
 
       return {
-        totalScore,
+        totalScore: adjustedScore,
         verdict,
+        requiereCMF: requiere,
+        escala,
+        nivel,
+        etiqueta,
         confianza,
         stoppedAt,
         shortCircuitReason,
@@ -173,6 +217,25 @@ export function createFullEvaluationTool(
       };
     },
   };
+}
+
+const RULE_APPLIES_TO_NON_CMF: ReadonlyMap<string, boolean> = new Map(
+  scoringRules.map((r) => [r.id, r.appliesToNonCmf]),
+);
+
+function adjustScoreForProfile(
+  total: number,
+  reasons: ReadonlyArray<Reason>,
+  profile: ScoreProfile,
+): number {
+  if (profile === "cmf") return total;
+  let adjusted = total;
+  for (const r of reasons) {
+    if (r.kind === "info") continue;
+    const applies = RULE_APPLIES_TO_NON_CMF.get(r.ruleId);
+    if (applies === false) adjusted -= r.weight;
+  }
+  return adjusted;
 }
 
 /**
@@ -483,12 +546,6 @@ function pushStage(
   });
   reasons.push(...s.reasons);
   sources.push(...s.sources);
-}
-
-function deriveVerdict(score: number): Verdict {
-  if (score <= -50) return "alto_riesgo";
-  if (score < 0) return "riesgo_medio";
-  return "sin_senales_negativas";
 }
 
 /**

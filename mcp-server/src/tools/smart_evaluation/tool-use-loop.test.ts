@@ -11,6 +11,10 @@ import { defaultToolUseEscalator } from "./tool-use-loop.js";
 const fullEvalStub: FullEvaluationOutput = {
   totalScore: 0,
   verdict: "sin_senales_negativas",
+  requiereCMF: true,
+  escala: "cmf",
+  nivel: 4,
+  etiqueta: "Confiable",
   confianza: 100,
   stoppedAt: null,
   shortCircuitReason: null,

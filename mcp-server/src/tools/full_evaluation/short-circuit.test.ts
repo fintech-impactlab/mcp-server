@@ -62,7 +62,8 @@ describe("shortCircuitAfterStage1", () => {
       }),
     );
     assert.ok(result);
-    assert.equal(result.verdict, "alto_riesgo");
+    assert.equal(result.nivel, 1);
+    assert.equal(result.etiqueta, "Crítico");
   });
 
   it("no corta cuando solo hay 1 hit pesado", () => {
@@ -100,7 +101,8 @@ describe("shortCircuitAfterStage3", () => {
       domainOutput({ domainAgeDays: 1095, sslStatus: "valid", sslIssuer: "DigiCert Inc" }),
     );
     assert.ok(result);
-    assert.equal(result.verdict, "sin_senales_negativas");
+    assert.equal(result.nivel, 5);
+    assert.equal(result.etiqueta, "Muy confiable");
   });
 
   it("no corta si la entidad no está autorizada", () => {

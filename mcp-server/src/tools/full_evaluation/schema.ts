@@ -52,11 +52,31 @@ export const StageReportSchema = z.object({
   reasons: z.array(Reason).readonly(),
 });
 
+export const NIVEL_ETIQUETAS = [
+  "Crítico",
+  "Riesgoso",
+  "Neutro",
+  "Confiable",
+  "Muy confiable",
+] as const;
+
 export const OutputSchema = z.object({
-  /** Score total = suma de partialScore de cada etapa ejecutada. */
+  /** Score total = suma de partialScore de cada etapa ejecutada, ajustado al perfil. */
   totalScore: z.number().int(),
-  /** alto_riesgo / riesgo_medio / sin_senales_negativas. */
+  /**
+   * Verdict legacy de 3 estados. Mantenido para retro-compat de clientes
+   * que aún no leen `nivel`. Mapping: nivel ≤ 2 → alto_riesgo, nivel = 3 →
+   * riesgo_medio, nivel ≥ 4 → sin_senales_negativas.
+   */
   verdict: z.enum(["alto_riesgo", "riesgo_medio", "sin_senales_negativas"]),
+  /** True si la entidad debería estar regulada por la CMF (perfil aplicado al score). */
+  requiereCMF: z.boolean(),
+  /** Escala de niveles aplicada (depende de requiereCMF). */
+  escala: z.enum(["cmf", "no_cmf"]),
+  /** Nivel de confianza 1-5 según `escala`. 1=Crítico, 5=Muy confiable. */
+  nivel: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+  /** Etiqueta humana del nivel. */
+  etiqueta: z.enum(NIVEL_ETIQUETAS),
   /** Confianza 0-100 derivada de cuántas tools respondieron sin caer en degraded. */
   confianza: z.number().int().min(0).max(100),
   /** Si se cortó temprano, indica la etapa; null si llegó hasta etapa_5. */

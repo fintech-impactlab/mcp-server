@@ -45,6 +45,10 @@ function claudeReturning(json: object): AnthropicClientLike {
 const fullEvalStubOutput: FullEvaluationOutput = {
   totalScore: -10,
   verdict: "riesgo_medio",
+  requiereCMF: true,
+  escala: "cmf",
+  nivel: 3,
+  etiqueta: "Neutro",
   confianza: 80,
   stoppedAt: null,
   shortCircuitReason: null,

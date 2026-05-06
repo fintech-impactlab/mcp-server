@@ -5,12 +5,21 @@
 import type { Output as BlacklistOutput } from "../check_blacklist/schema.js";
 import type { Output as DomainOutput } from "../analyze_domain/schema.js";
 import type { Output as RegulatorOutput } from "../check_regulator_status/schema.js";
+import type { LevelId, LevelLabel } from "../../scoring/levels.js";
 
 export type Verdict = "alto_riesgo" | "riesgo_medio" | "sin_senales_negativas";
 
 export interface ShortCircuit {
   reason: string;
-  verdict: Verdict;
+  nivel: LevelId;
+  etiqueta: LevelLabel;
+}
+
+/** Mapping nivel (5) ↔ verdict (3) legacy. */
+export function verdictFromNivel(nivel: LevelId): Verdict {
+  if (nivel <= 2) return "alto_riesgo";
+  if (nivel === 3) return "riesgo_medio";
+  return "sin_senales_negativas";
 }
 
 /**
@@ -25,7 +34,8 @@ export function shortCircuitAfterStage1(
   if (heavyHits >= 2) {
     return {
       reason: `${heavyHits} fuentes de blacklist con peso ≤ -40 confirman alto riesgo; no se requiere análisis adicional.`,
-      verdict: "alto_riesgo",
+      nivel: 1,
+      etiqueta: "Crítico",
     };
   }
   return null;
@@ -49,7 +59,8 @@ export function shortCircuitAfterStage3(
     return {
       reason:
         "Entidad autorizada en RPSF + dominio con más de 2 años + SSL válido emitido por CA reputada: indicadores convergentes positivos.",
-      verdict: "sin_senales_negativas",
+      nivel: 5,
+      etiqueta: "Muy confiable",
     };
   }
   return null;
