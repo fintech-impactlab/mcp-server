@@ -73,7 +73,7 @@ Trabajo puramente en `mcp-server/src/`. No toca infra. Verificable con tests + K
   - **AC:** `az keyvault secret set --name mcp-api-key-web --vault-name <kv> --value '<plaintext-de-A2.1>'`. Este secret existe en KV solo para que `ca-web` lo consuma vía secretRef. Tiene tag `purpose=mcp-bearer`.
   - **Verify:** `az keyvault secret show --name mcp-api-key-web --vault-name <kv> --query "tags" -o json` muestra `{"purpose":"mcp-bearer"}`.
 
-- [ ] **A2.5** Smoke test post-deploy del MCP con auth obligatoria.
+- [x] **A2.5** Smoke test post-deploy del MCP con auth obligatoria.
   - **AC:** desde un job temporal en el CAE (`az containerapp exec` o equivalente):
     ```bash
     curl -fsS -o /dev/null -w "%{http_code}" -X POST http://ca-mcp-fintech-${env}/mcp -H "Content-Type: application/json" -d '{}'
