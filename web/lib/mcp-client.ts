@@ -73,6 +73,12 @@ const FullEvaluationResponse = z
   .object({
     totalScore: z.number().int(),
     verdict: z.enum(["alto_riesgo", "riesgo_medio", "sin_senales_negativas"]),
+    requiereCMF: z.boolean().optional(),
+    escala: z.enum(["cmf", "no_cmf"]).optional(),
+    nivel: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+    etiqueta: z
+      .enum(["Crítico", "Riesgoso", "Neutro", "Confiable", "Muy confiable"])
+      .optional(),
     confianza: z.number(),
     stoppedAt: z.string().nullable().optional(),
     shortCircuitReason: z.string().nullable().optional(),
@@ -394,6 +400,8 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
       durationMs: Date.now() - startedAt,
       totalScore: data.totalScore,
       verdict: data.verdict,
+      nivel: data.nivel ?? null,
+      escala: data.escala ?? null,
       confianza: data.confianza,
       stoppedAt: data.stoppedAt ?? null,
     });

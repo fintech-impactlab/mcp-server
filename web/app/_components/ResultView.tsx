@@ -30,6 +30,44 @@ const VERDICT_LABEL: Record<
   },
 };
 
+// Mapping nivel (1-5) → tono y copy. Cuando el MCP retorna `nivel`, se prefiere
+// sobre el `verdict` legacy de 3 estados.
+const NIVEL_LABEL: Record<
+  number,
+  { tone: Tone; label: string; sub: string }
+> = {
+  1: {
+    tone: "red",
+    label: "Crítico: no entregues datos",
+    sub: "Detectamos alertas graves. No ingreses claves, no transfieras dinero y revisa los canales para denunciar.",
+  },
+  2: {
+    tone: "orange",
+    label: "Riesgoso: revisa antes de continuar",
+    sub: "Hay señales negativas significativas. No operes hasta confirmar por canales oficiales.",
+  },
+  3: {
+    tone: "yellow",
+    label: "Neutro: avanza con cautela",
+    sub: "Hay señales menores. Verifica antes de entregar datos o dinero.",
+  },
+  4: {
+    tone: "green",
+    label: "Confiable",
+    sub: "Sin señales negativas relevantes. Confirma de todos modos por canales oficiales antes de operar.",
+  },
+  5: {
+    tone: "green",
+    label: "Muy confiable",
+    sub: "Señales convergentes de legitimidad (registro vigente, antigüedad, infraestructura).",
+  },
+};
+
+const ESCALA_LABEL: Record<string, string> = {
+  cmf: "Empresa que debería estar regulada por la CMF",
+  no_cmf: "Empresa fuera del perímetro CMF",
+};
+
 const TIPO_ENTIDAD: Record<string, string> = {
   banco: "Banco",
   caja_compensacion: "Caja de compensación",
@@ -343,12 +381,22 @@ function LegalReferenceCard({ legal }: { legal: LegalReference }) {
 }
 
 export function ResultView({ input, data }: { input: string; data: EvaluationResult }) {
-  const v = VERDICT_LABEL[data.verdict] ?? {
-    tone: "gray" as Tone,
-    label: data.verdict,
-    sub: "",
-  };
+  // Preferimos `nivel` (1-5) cuando el MCP lo provee. Fallback a `verdict`
+  // legacy de 3 estados para retro-compat con instalaciones antiguas.
+  const v =
+    typeof data.nivel === "number"
+      ? (NIVEL_LABEL[data.nivel] ?? {
+          tone: "gray" as Tone,
+          label: data.etiqueta ?? `Nivel ${data.nivel}`,
+          sub: "",
+        })
+      : (VERDICT_LABEL[data.verdict] ?? {
+          tone: "gray" as Tone,
+          label: data.verdict,
+          sub: "",
+        });
   const tone = v.tone;
+  const escalaLabel = data.escala ? ESCALA_LABEL[data.escala] : null;
   const tipo =
     data.tipoEntidad && data.tipoEntidad !== "desconocido"
       ? (TIPO_ENTIDAD[data.tipoEntidad] ?? data.tipoEntidad)
@@ -376,6 +424,7 @@ export function ResultView({ input, data }: { input: string; data: EvaluationRes
           <div>
             <div className="cc-verdict-label">{v.label}</div>
             {v.sub && <div className="cc-verdict-sub">{v.sub}</div>}
+            {escalaLabel && <div className="cc-verdict-escala">{escalaLabel}</div>}
           </div>
         </div>
 
