@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   BCEError,
   BCNError,
+  ClaudeAPIError,
   CMFFetchError,
   CSIRTError,
   DequienesError,
@@ -75,6 +76,7 @@ describe("ToolError (base)", () => {
 const subclassCases = [
   { Cls: BCEError, expectedName: "BCEError", expectedSource: "bce" },
   { Cls: BCNError, expectedName: "BCNError", expectedSource: "bcn-ley-facil" },
+  { Cls: ClaudeAPIError, expectedName: "ClaudeAPIError", expectedSource: "claude-api" },
   { Cls: CMFFetchError, expectedName: "CMFFetchError", expectedSource: "cmf-alertas" },
   { Cls: CSIRTError, expectedName: "CSIRTError", expectedSource: "csirt" },
   { Cls: DequienesError, expectedName: "DequienesError", expectedSource: "dequienes" },

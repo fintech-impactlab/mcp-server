@@ -58,6 +58,7 @@ function defineSourceError(name: string, source: string) {
 
 export const BCEError = defineSourceError("BCEError", "bce");
 export const BCNError = defineSourceError("BCNError", "bcn-ley-facil");
+export const ClaudeAPIError = defineSourceError("ClaudeAPIError", "claude-api");
 export const CMFFetchError = defineSourceError("CMFFetchError", "cmf-alertas");
 export const CSIRTError = defineSourceError("CSIRTError", "csirt");
 export const DequienesError = defineSourceError("DequienesError", "dequienes");
@@ -72,6 +73,7 @@ export const WHOISError = defineSourceError("WHOISError", "whois");
 
 export type BCEError = InstanceType<typeof BCEError>;
 export type BCNError = InstanceType<typeof BCNError>;
+export type ClaudeAPIError = InstanceType<typeof ClaudeAPIError>;
 export type CMFFetchError = InstanceType<typeof CMFFetchError>;
 export type CSIRTError = InstanceType<typeof CSIRTError>;
 export type DequienesError = InstanceType<typeof DequienesError>;

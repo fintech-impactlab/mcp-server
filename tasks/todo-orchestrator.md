@@ -7,23 +7,23 @@
 
 ## Slice 0 — Foundations
 
-- [ ] **0.1** `pnpm add @anthropic-ai/sdk` en `mcp-server/`.
+- [x] **0.1** `pnpm add @anthropic-ai/sdk` en `mcp-server/`.
   - **AC:** dep en `package.json` con versión pinned. `pnpm install --frozen-lockfile` pasa.
   - **Verify:** `grep '@anthropic-ai/sdk' mcp-server/package.json` ≥ 1 línea. `pnpm build` verde.
 
-- [ ] **0.2** Wrapper `src/lib/anthropic.ts` con timeout, retry 5xx, captura tokens.
+- [x] **0.2** Wrapper `src/lib/anthropic.ts` con timeout, retry 5xx, captura tokens.
   - **AC:** expone `createAnthropicClient`, `callClaude`. Errores envuelven en `ClaudeAPIError`. No retriea 429.
   - **Verify:** `pnpm test -- anthropic` con SDK mockeado: 5xx retriea (3×), 429 no retriea, timeout retriea, success captura tokens.
 
-- [ ] **0.3** Convención de prompt versioning documentada en `mcp-server/CONVENTIONS.md`.
+- [x] **0.3** Convención de prompt versioning documentada en `mcp-server/CONVENTIONS.md`.
   - **AC:** sección nueva describe estructura `prompts/<name>-v<N>.ts`, requisito de hash sha256 en constante, test snap.
   - **Verify:** `grep -A 10 "prompt versioning" mcp-server/CONVENTIONS.md`.
 
-- [ ] **0.4** Logger event canónico `claude.call` documentado.
+- [x] **0.4** Logger event canónico `claude.call` documentado.
   - **AC:** `mcp-server/CONVENTIONS.md` lista el shape: `{ event: "claude.call", toolName, promptId, promptVersion, model, durationMs, inputTokens, outputTokens, success, retries }`. Prohíbe loguear contenido del prompt o respuesta.
   - **Verify:** test unitario en wrapper verifica que no aparece prompt content en log capturado.
 
-- [ ] **0.5** `ClaudeAPIError` en `src/lib/errors.ts`.
+- [x] **0.5** `ClaudeAPIError` en `src/lib/errors.ts`.
   - **AC:** `defineSourceError("ClaudeAPIError", "claude-api")`. Type export.
   - **Verify:** `pnpm test -- errors` cubre nuevo error.
 

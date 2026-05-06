@@ -126,9 +126,39 @@ Helpers compartidos (no por tool) viven en:
 
 - `tool.call` — emitido por cada handler al cierre, con payload `{ event, toolName, clientId, inputHash, durationMs, success, sources?, errors? }`. `clientId` viene de `res.locals.auth.clientId` (set por `requireBearer`).
 - `tool.error` — payload `{ event, toolName, source, message, retriable }`. Solo cuando una fuente externa cae con error tipado.
+- `claude.call` — emitido por cada llamada al LLM desde la capa orquestadora. Payload `{ event: "claude.call", toolName, promptId, promptVersion, model, durationMs, inputTokens, outputTokens, success, retries, message? }`. **Nunca** loguea el contenido del system prompt ni la respuesta del modelo (validado por test en `lib/anthropic.test.ts`). El campo `message` solo aparece cuando `success: false`, con el mensaje del error envuelto.
 - `auth.failure` — emitido por `requireBearer` (ya implementado, ver § Authentication).
 
 Sink: stdout en JSON Lines. Sin SDK adicional. Hoy no hay persistencia (CAE con `appLogsConfiguration: null`); reabrir si se reactiva el sink.
+
+### Prompt versioning (orquestadores con LLM)
+
+Los prompts que se envían a Claude desde dentro del MCP son **código auditable**, no configuración runtime. Convenciones:
+
+- **Ubicación:** `src/tools/<tool-name>/prompts/<promptId>-v<N>.ts`. Un archivo por prompt y por versión. Ej. `src/tools/smart_evaluation/prompts/classify-v1.ts`.
+- **Shape exportado:**
+  ```ts
+  export const CLASSIFY_V1 = {
+    id: "classify",
+    version: "1",
+    system: "...",         // system prompt literal
+    outputSchemaJson: "...", // JSON schema esperado en la respuesta
+    hashEsperado: "<sha256>", // sha256(system) en hex
+  } as const;
+  ```
+- **Test pin:** cada prompt tiene un test que verifica `sha256(prompt.system) === prompt.hashEsperado`. Si alguien edita el prompt sin bumpear la versión, el test rompe.
+- **Bump de versión:** cambiar `id` o `version` requiere también renombrar el archivo y actualizar las referencias. La versión vieja se mantiene un release adicional para rollback.
+- **No interpolación dinámica en `system`.** Variables del usuario van en `messages` (rol `user`), nunca concatenadas al system prompt.
+- **Trazabilidad:** `callClaude` requiere `promptId` y `promptVersion` como parámetros y los emite en cada `claude.call`.
+
+### LLM en orquestadores
+
+- **Quién puede usar LLM:** `src/tools/full_evaluation/` (cuando se introduzca tool-use) y orquestadores upstream (`smart_evaluation`). Nunca `src/scoring/`, parsers, ni clientes de fuentes externas.
+- **Wrapper único:** todas las llamadas pasan por `lib/anthropic.ts` (`createAnthropicClient`, `callClaude`). Nadie instancia `Anthropic` directo en código de tools.
+- **Modelo:** decidido en código, no por env var. Por slice cubierto: `claude-haiku-4-5-20251001` para clasificación y tool-use ligero. Bumpear modelo es un cambio versionado.
+- **Caps obligatorios:** `maxTokens` (default 1024) y `timeoutMs` (default 8 s) en todas las llamadas. Loops tool-use agregan `maxIters` y `maxTotalTokens`.
+- **Fallback determinístico obligatorio:** si `callClaude` falla tras retries, el handler tiene que tener un camino determinístico (ej. `classifyFullEvalInput`) que mantenga el contrato.
+- **PII:** el input crudo del usuario se pasa a Claude (Anthropic lo recibe), pero **el server local nunca lo persiste en logs**. Hashing aplica a `inputHash` en `tool.call`. El system prompt no debe incluir datos del usuario.
 
 ### Test conventions
 
