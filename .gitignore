@@ -72,5 +72,4 @@ cache/
 # Personal Claude config
 .claude/
 
-# Repo externo clonado aparte (no forma parte del monorepo)
-chrome-extension/
+

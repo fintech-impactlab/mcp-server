@@ -550,13 +550,13 @@ Ambos scripts son idempotentes — re-correrlos no genera churn. Para agregar un
 
 - 11 tools granulares + 2 tools de orquestación (`full_evaluation` 100 % determinística, `smart_evaluation` con LLM Haiku 4.5 para inputs ambiguos).
 - Cobertura inicial de las fuentes principales (CMF Alertas Ciudadanas, CMF RPSF, SII, NIC Chile, FinteChile, PhishTank, URLhaus, Banco Central API BDE, BCN Ley Fácil API).
-- Cliente web demo de referencia (Next.js).
+- Cliente web demo de referencia (Next.js) en [`web/`](web/).
+- Extensión de Chrome ("Escudo Financiero") que analiza el sitio activo en tiempo real consumiendo el MCP. Ver [`chrome-extension/`](chrome-extension/) para instalación y configuración.
 - 28 reglas de scoring deterministas documentadas en [SCORING.md](SCORING.md).
 - Guía de conexión para clientes externos en [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md).
 
 ### Inmediato post-lab
 
-- Extensión de navegador Chrome que consume el MCP.
 - App de validación de SMS sospechosos.
 - Chatbot de WhatsApp / Telegram.
 - Cobertura completa del scraping de SII, dequienes.cl y SERNAC.

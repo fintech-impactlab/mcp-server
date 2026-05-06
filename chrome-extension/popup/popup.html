@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escudo Financiero</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <span class="logo-icon">🛡️</span>
+      <span class="logo-text">Escudo Financiero</span>
+    </div>
+    <div id="domain-label" class="domain-label"></div>
+  </div>
+
+  <div id="state-setup" class="state hidden">
+    <div class="setup-icon">⚙️</div>
+    <p class="state-text">Extensión no configurada</p>
+    <p class="state-subtext">Ingresa tu API key del MCP server para activar el análisis</p>
+    <button id="btn-setup" class="btn-analizar">Configurar ahora</button>
+  </div>
+
+  <div id="state-manual" class="state hidden">
+    <div class="manual-icon">🔍</div>
+    <p class="state-text">Sitio no analizado</p>
+    <p class="state-subtext">Haz clic para verificar este sitio</p>
+    <button id="btn-analizar" class="btn-analizar">Analizar sitio</button>
+  </div>
+
+  <div id="state-loading" class="state hidden">
+    <div class="spinner"></div>
+    <p class="state-text">Analizando sitio...</p>
+  </div>
+
+  <div id="state-result" class="state hidden">
+    <div class="score-ring-container">
+      <svg class="score-ring" viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="42" />
+        <circle id="ring-progress" class="ring-progress" cx="50" cy="50" r="42"
+          stroke-dasharray="264"
+          stroke-dashoffset="264" />
+      </svg>
+      <div class="score-center">
+        <div id="score-number" class="score-number">--</div>
+        <div id="score-label" class="score-label">/ 100</div>
+      </div>
+    </div>
+
+    <div id="titulo-badge" class="titulo-badge"></div>
+    <p id="resumen-text" class="resumen-text"></p>
+
+    <div id="razones-list" class="razones-list"></div>
+
+    <div id="recomendacion-box" class="recomendacion-box">
+      <span class="rec-icon">💡</span>
+      <span id="recomendacion-text"></span>
+    </div>
+
+    <button id="btn-detalles" class="btn-detalles">Ver detalles técnicos ▾</button>
+
+    <div id="detalles-panel" class="detalles-panel hidden">
+      <div id="detalles-content" class="detalles-content"></div>
+    </div>
+
+    <button id="btn-regulation" class="btn-regulation hidden">Marco Legal y Derechos ▾</button>
+
+    <div id="regulation-panel" class="regulation-panel hidden">
+      <div id="regulation-content"></div>
+    </div>
+  </div>
+
+  <div id="state-error" class="state hidden">
+    <div class="error-icon">⚠️</div>
+    <p class="state-text">MCP no disponible</p>
+    <p class="state-subtext">Verifica tu conexión o la configuración de la extensión</p>
+    <button id="btn-retry-setup" class="btn-analizar" style="margin-top:12px;font-size:12px;padding:8px 16px">Revisar configuración</button>
+  </div>
+
+  <div class="footer">
+    <span>Verifica en</span>
+    <a href="https://www.cmfchile.cl" target="_blank">cmfchile.cl</a>
+    <span>·</span>
+    <a href="https://www.sernac.cl" target="_blank">sernac.cl</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
