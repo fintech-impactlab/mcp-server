@@ -43,6 +43,13 @@ export interface DnsFacts {
   registrantAnonymized?: boolean;
 }
 
+export interface BusinessModelFacts {
+  promesaRentabilidadIrreal?: boolean;
+  estructuraReferidos?: boolean;
+  lenguajeVago?: boolean;
+  ausenciaInfoLegal?: boolean;
+}
+
 export interface RegulatorFacts {
   tipoEntidad?:
     | "banco"
@@ -65,6 +72,7 @@ export interface Facts {
   entity?: EntityFacts;
   dns?: DnsFacts;
   regulator?: RegulatorFacts;
+  businessModel?: BusinessModelFacts;
 }
 
 export interface Rule {
@@ -297,6 +305,44 @@ export const rules: ReadonlyArray<Rule> = [
       "Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente.",
     predicate: (f) => f.entity?.siiStatus === "sin_inicio",
   },
+  // ── Business Model ─────────────────────────────────────────────────────
+  {
+    id: "bm.promesa_rentabilidad_irreal",
+    category: "business_model",
+    weight: -30,
+    reason: "Promesas de rentabilidad incompatibles con el mercado regulado",
+    fundamento:
+      "Una rentabilidad anualizada que excede la tasa máxima convencional o promete riesgo cero es contradictoria con el funcionamiento del mercado financiero chileno; señal regulatoria dura cuando se detecta en oferta pública.",
+    predicate: (f) => f.businessModel?.promesaRentabilidadIrreal === true,
+  },
+  {
+    id: "bm.estructura_referidos",
+    category: "business_model",
+    weight: -25,
+    reason: "Modelo de ingresos basado en referidos / multinivel",
+    fundamento:
+      "La compensación por reclutamiento (en lugar de venta de servicios) es el patrón estructural de esquemas piramidales; bajo ley chilena (Ley 19.496 + jurisprudencia CMF) es indicio de fraude.",
+    predicate: (f) => f.businessModel?.estructuraReferidos === true,
+  },
+  {
+    id: "bm.lenguaje_vago",
+    category: "business_model",
+    weight: -10,
+    reason: "Comunicación con lenguaje aspiracional vago, urgencia artificial",
+    fundamento:
+      "'Oportunidad única', 'cupos limitados', 'libertad financiera' son tokens recurrentes en marketing fraudulento porque buscan compresión temporal de la decisión y desactivan el escrutinio del usuario.",
+    predicate: (f) => f.businessModel?.lenguajeVago === true,
+  },
+  {
+    id: "bm.ausencia_info_legal",
+    category: "business_model",
+    weight: -15,
+    reason: "Sitio sin RUT, razón social ni dirección física",
+    fundamento:
+      "Cualquier prestador de servicios financieros en Chile debe identificarse formalmente. Ausencia simultánea de RUT + razón social + dirección física es incompatible con un negocio financiero legítimo (Ley 19.496 art. 28).",
+    predicate: (f) => f.businessModel?.ausenciaInfoLegal === true,
+  },
+
   // ── Regulator ──────────────────────────────────────────────────────────
   {
     id: "regulator.rpsf_autorizada_y_giro_consistente",

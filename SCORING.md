@@ -4,7 +4,7 @@
 
 Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-scoring).
 
-**Reglas:** 24.
+**Reglas:** 28.
 
 ## Convenciones
 
@@ -38,6 +38,10 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 | `entity.sii_activo` | entity | +10 | Inicio de actividades vigente en el SII | Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. Necesario, no suficiente. |
 | `entity.sii_suspendido` | entity | -30 | Estado 'suspendido' en el SII | Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado. |
 | `entity.sii_sin_inicio` | entity | -50 | Sin inicio de actividades en el SII | Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente. |
+| `bm.promesa_rentabilidad_irreal` | business_model | -30 | Promesas de rentabilidad incompatibles con el mercado regulado | Una rentabilidad anualizada que excede la tasa máxima convencional o promete riesgo cero es contradictoria con el funcionamiento del mercado financiero chileno; señal regulatoria dura cuando se detecta en oferta pública. |
+| `bm.estructura_referidos` | business_model | -25 | Modelo de ingresos basado en referidos / multinivel | La compensación por reclutamiento (en lugar de venta de servicios) es el patrón estructural de esquemas piramidales; bajo ley chilena (Ley 19.496 + jurisprudencia CMF) es indicio de fraude. |
+| `bm.lenguaje_vago` | business_model | -10 | Comunicación con lenguaje aspiracional vago, urgencia artificial | 'Oportunidad única', 'cupos limitados', 'libertad financiera' son tokens recurrentes en marketing fraudulento porque buscan compresión temporal de la decisión y desactivan el escrutinio del usuario. |
+| `bm.ausencia_info_legal` | business_model | -15 | Sitio sin RUT, razón social ni dirección física | Cualquier prestador de servicios financieros en Chile debe identificarse formalmente. Ausencia simultánea de RUT + razón social + dirección física es incompatible con un negocio financiero legítimo (Ley 19.496 art. 28). |
 | `regulator.rpsf_autorizada_y_giro_consistente` | regulator | +25 | Autorizada en RPSF con giro tributario consistente con la categoría | RPSF autorizada + giro SII coherente con la actividad declarada (ej. fintech con código 6491/6492 o asesor con 6499) descarta el patrón típico de empresas autorizadas pero operando fuera de su giro. |
 | `regulator.fintech_no_registrada` | regulator | -30 | Operación que se presenta como fintech sin estar inscrita en RPSF | Bajo Ley 21.521 todo prestador de servicios fintech debe registrarse en RPSF (Plataformas, Custodios, Asesores, Iniciadores, Enrutadores). Operar como fintech sin registro es directamente irregular. |
 | `entity.antiguedad_lt6m` | entity | -15 | Empresa con menos de 6 meses desde inicio de actividades | Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria. |
@@ -52,6 +56,13 @@ Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-sco
 - **`blacklist.cmf_apps_creditos_no_reguladas`** (-50): Aparece en CMF — Apps de Créditos No Reguladas
 - **`blacklist.cmf_otras_entidades_no_reguladas`** (-50): Aparece en CMF — Otras Entidades No Reguladas
 - **`blacklist.urlhaus`** (-30): URL reportada en URLhaus
+
+### business_model (4 reglas, suma de pesos = -80)
+
+- **`bm.promesa_rentabilidad_irreal`** (-30): Promesas de rentabilidad incompatibles con el mercado regulado
+- **`bm.estructura_referidos`** (-25): Modelo de ingresos basado en referidos / multinivel
+- **`bm.lenguaje_vago`** (-10): Comunicación con lenguaje aspiracional vago, urgencia artificial
+- **`bm.ausencia_info_legal`** (-15): Sitio sin RUT, razón social ni dirección física
 
 ### dns (2 reglas, suma de pesos = -10)
 

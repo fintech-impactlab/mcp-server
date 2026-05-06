@@ -11,6 +11,7 @@ import { resolveKeyLoader } from "./server/auth/bootstrap.js";
 import { KeyStore } from "./server/auth/key-store.js";
 import { requireBearer } from "./server/middleware/auth.js";
 import { registerTool } from "./server/registry.js";
+import { createAnalyzeBusinessModelTool } from "./tools/analyze_business_model/index.js";
 import { createAnalyzeDomainTool } from "./tools/analyze_domain/index.js";
 import { createCheckBlacklistTool } from "./tools/check_blacklist/index.js";
 import { createCheckDnsOwnershipTool } from "./tools/check_dns_ownership/index.js";
@@ -112,6 +113,9 @@ async function main(): Promise<void> {
     }),
   );
   logger.event("server.tool_registered", { toolName: "check_regulator_status" });
+
+  registerTool(mcp, createAnalyzeBusinessModelTool());
+  logger.event("server.tool_registered", { toolName: "analyze_business_model" });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

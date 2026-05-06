@@ -114,6 +114,10 @@ describe("score — exhaustividad de reglas", () => {
       { entity: { ageMonths: 3 } }, // entity.antiguedad_lt6m
       { regulator: { estadoRPSF: "autorizada", giroConsistente: true } },
       { regulator: { tipoEntidad: "fintech", estadoRPSF: "no_registrada" } },
+      { businessModel: { promesaRentabilidadIrreal: true } },
+      { businessModel: { estructuraReferidos: true } },
+      { businessModel: { lenguajeVago: true } },
+      { businessModel: { ausenciaInfoLegal: true } },
     ];
     const matchedIds = new Set<string>();
     for (const facts of allHits) {

@@ -283,19 +283,19 @@ Reusa parsers de Slice 5 + clasificador de tipo.
 
 Reglas determinísticas + integración con Slice 2. **Disclaimer obligatorio.**
 
-- [ ] **10.1** Detectores determinísticos.
+- [x] **10.1** Detectores determinísticos.
   - **AC:** `src/tools/analyze_business_model/detectors.ts`. Funciones puras que reciben texto y retornan flags: `detectaPromesaRentabilidadAlta` (regex/keyword), `detectaEsquemaReferidos`, `detectaLenguajeVago` (lista de tokens), `detectaAusenciaInfoLegal`. Sin LLM.
   - **Verify:** test por detector con casos afirmativos y negativos.
 
-- [ ] **10.2** Integración con `get_market_reference_rates`.
+- [x] **10.2** Integración con `get_market_reference_rates`.
   - **AC:** cuando `detectaPromesaRentabilidadAlta` matchea con `% mensual = X`, llama internamente a `get_market_reference_rates` y compara: `rentabilidadMensual * 12 > tasaMaximaConvencional` → flag con respaldo cuantitativo.
   - **Verify:** test con fixture: promesa "10% mensual" + tasa máxima 25% anual → flag con razón "120% anual vs tasa máxima 25%".
 
-- [ ] **10.3** Handler con disclaimer obligatorio.
+- [x] **10.3** Handler con disclaimer obligatorio.
   - **AC:** output siempre incluye `disclaimer: "Análisis indicativo, no constitutivo. No sustituye asesoría legal ni decisión informada del usuario."` (texto literal del README).
   - **Verify:** test verifica que el campo `disclaimer` está presente.
 
-- [ ] **10.4** Reglas de scoring + tests + trazas.
+- [x] **10.4** Reglas de scoring + tests + trazas.
   - **AC:** reglas `bm.promesa_rentabilidad_irreal` (-30), `bm.estructura_referidos` (-25), `bm.lenguaje_vago` (-10), `bm.ausencia_info_legal` (-15).
   - **Verify:** `npm test -- analyze_business_model` verde.
 
