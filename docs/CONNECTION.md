@@ -1,29 +1,44 @@
 # Conexión y prueba del MCP server
 
-Guía operativa para probar el MCP `ca-mcp-fintech-dev` desplegado en el RG `oarocha-fintech` (sub Pharmkt Sponsorship, region `eastus`).
+Guía operativa para probar y consumir el MCP desplegado en Azure Container Apps. Los nombres reales de RG, FQDN, storage account y Key Vault se resuelven en runtime desde los outputs del deployment — esta doc usa placeholders.
 
-## 1. Topología actual
+## 1. Topología
 
 ```
                    Internet
                        │
                        ▼
         ┌────────────────────────────┐
-        │ ca-web-fintech-dev         │  external: true, ingress HTTPS
-        │ (Next.js placeholder)      │  FQDN: ca-web-fintech-dev.<cae>.eastus.azurecontainerapps.io
-        └──────────────┬─────────────┘
-                       │ http://ca-mcp-fintech-dev (DNS interno del CAE)
-                       │ Authorization: Bearer <plaintext mcp-api-key-web>
+        │ ca-web-<project>-<env>     │  external: true (ingress HTTPS público)
+        │ (Next.js placeholder)      │  Smoke UI; SSR fetch al MCP /health.
+        └────────────────────────────┘
+
+                   Internet
+                       │
                        ▼
         ┌────────────────────────────┐
-        │ ca-mcp-fintech-dev         │  external: false, port 3001
-        │ (Node MCP server)          │  Solo accesible desde dentro del CAE
+        │ ca-mcp-<project>-<env>     │  external: true, port 3001
+        │ (Node MCP server)          │  Auth: Bearer obligatorio en /mcp
         │  ├─ GET  /health           │  sin auth
-        │  ├─ POST /mcp              │  Bearer required, JSON-RPC over Streamable HTTP
+        │  ├─ POST /mcp              │  Bearer + JSON-RPC over Streamable HTTP
         │  └─ GET  /mcp              │  405
         │                            │  Volumen: /app/data ← File Share `mcp-data`
         └────────────────────────────┘
 ```
+
+Naming convention de los recursos (declarado en `infra/main.bicep`):
+
+| Recurso | Patrón |
+|---------|--------|
+| Resource group | provisto por el operador |
+| Storage account | `st<project><env><uniqueSuffix>` (24 chars max, lowercase) |
+| File Share | `mcp-data` (fijo) |
+| Key Vault | `kv-<project>-<env>-<uniqueSuffix>` |
+| MCP container app | `ca-mcp-<project>-<env>` |
+| Web container app | `ca-web-<project>-<env>` |
+| UAI MCP | `uai-mcp-<env>` |
+
+`<uniqueSuffix>` se deriva de `uniqueString(resourceGroup().id)` en Bicep — estable para un mismo RG.
 
 **Tools registradas hoy** (ver `mcp-server/src/index.ts`):
 
@@ -32,180 +47,111 @@ Guía operativa para probar el MCP `ca-mcp-fintech-dev` desplegado en el RG `oar
 
 > Próximas tools (Slices 4-13 de `tasks/todo-tools.md`): `check_blacklist`, `check_whitelist`, `analyze_domain`, `check_dns_ownership`, `verify_chilean_entity`, `check_regulator_status`, `analyze_business_model`, `get_applicable_regulation`, `get_official_complaint_channels`, `full_evaluation`.
 
-## 2. Endpoints
+## 2. Resolver los nombres del deployment
+
+Todos los comandos asumen variables `RG` y `DEPLOY` (nombre del deployment Bicep) ya seteadas en tu shell. Después de un deploy con `az deployment group create -g <rg> -n <deploy> -f infra/main.bicep --parameters project=<p> env=<e>`:
+
+```bash
+RG=<your-resource-group>
+DEPLOY=<your-deployment-name>
+
+KV=$(az deployment group show -g $RG -n $DEPLOY \
+  --query 'properties.outputs.keyVaultName.value' -o tsv)
+ST=$(az deployment group show -g $RG -n $DEPLOY \
+  --query 'properties.outputs.storageAccountName.value' -o tsv)
+MCP_NAME=$(az deployment group show -g $RG -n $DEPLOY \
+  --query 'properties.outputs.mcpAppName.value' -o tsv)
+MCP_FQDN=$(az deployment group show -g $RG -n $DEPLOY \
+  --query 'properties.outputs.mcpAppFqdn.value' -o tsv)
+```
+
+A partir de acá los comandos usan esas variables, no nombres reales.
+
+## 3. Endpoints
 
 | Endpoint | Acceso | Auth | Para qué sirve |
 |----------|--------|------|----------------|
-| `https://<web-fqdn>/` | público | ninguno | Smoke test extremo-a-extremo (web hace SSR fetch al `/health` del MCP). Útil para validar que la red interna del CAE funciona y el MCP está vivo. |
-| `http://ca-mcp-fintech-dev/health` | solo dentro del CAE | ninguno | Health check directo del MCP. |
-| `http://ca-mcp-fintech-dev/mcp` (POST) | solo dentro del CAE | `Bearer <plaintext>` | Protocolo MCP (JSON-RPC over Streamable HTTP). Lo consumen clientes MCP. |
+| `https://$MCP_FQDN/health` | público | ninguno | Health check del MCP. |
+| `https://$MCP_FQDN/mcp` POST | público | `Bearer <plaintext>` | Protocolo MCP (JSON-RPC over Streamable HTTP). Lo consumen clientes MCP. |
+| `https://<web-fqdn>/` | público | ninguno | UI placeholder; SSR fetch al `/health` del MCP. Smoke visual. |
 
-**Acceso público desde 2026-05-06:** el MCP está `external: true` en `infra/main.bicep:120` con `minReplicas: 1` (sin cold starts). Cualquier cliente MCP HTTP con el bearer correcto puede conectarse. Ver Camino C abajo.
+> Si en el futuro decidís retornar a ingress interno: cambiar `external: true → false` en `infra/main.bicep` (sección `mcpApp`) y redeployar. Eso rompe los clientes externos pero acota la superficie.
 
-## 3. Recuperar el Bearer token
+## 4. Recuperar el Bearer token
 
 El plaintext del clientId `web` vive en Key Vault como `mcp-api-key-web` (poblado por `mcp-server/scripts/bootstrap-mcp-api-keys.mjs`).
 
 ```bash
-RG=oarocha-fintech
-KV=$(az deployment group show -g $RG -n storage-volume-s1 --query 'properties.outputs.keyVaultName.value' -o tsv)
-
-BEARER=$(az keyvault secret show --vault-name "$KV" --name mcp-api-key-web --query 'value' -o tsv)
-echo "Bearer (43 chars): ${BEARER:0:8}…${BEARER: -4}"
-```
-
-Existe también un clientId `dev` en el JSON `mcp-api-keys` (hashes), pero su plaintext **no se persiste** — solo se imprime una vez al correr `bootstrap-mcp-api-keys.mjs`. Si lo necesitás, regenerá las keys con ese script (rota ambas a la vez).
-
-## 4. Camino A — Smoke test público (sin auth, sin TTY)
-
-El más simple. Solo prueba que el web puede alcanzar al MCP.
-
-```bash
-RG=oarocha-fintech
-WEB=$(az containerapp show -n ca-web-fintech-dev -g $RG \
-  --query 'properties.configuration.ingress.fqdn' -o tsv)
-
-curl -sS -o /tmp/web.html -w "HTTP %{http_code} en %{time_total}s\n" "https://$WEB/"
-grep -oE "status[^,]*ok|fintech-mcp|0\\.1\\.0|no se pudo[^<]*" /tmp/web.html | head -5
-```
-
-**Salida esperada (cuando MCP está caliente):**
-
-```
-HTTP 200 en 0.40s
-status</dt><dd ...>ok
-fintech-mcp
-0.1.0
-```
-
-**Si ves `no se pudo alcanzar al MCP server: ... timeout`:** el MCP está scaled-to-zero (`minReplicas: 0`) y el SSR fetch del web tiene timeout 2s. Reintentá tras 30s — el primer pageload despierta una réplica y los siguientes responden en <500ms.
-
-## 5. Camino B — Protocolo MCP via `containerapp exec` (con auth, requiere TTY real)
-
-Para validar JSON-RPC `tools/list` y `tools/call` hay que entrar al container del web (que tiene `MCP_API_KEY` en env y resolución DNS interna). Requiere terminal con TTY (no funciona vía harness automatizado).
-
-```bash
-RG=oarocha-fintech
-MCP=ca-mcp-fintech-dev
-WEB=ca-web-fintech-dev
-
-# 1) Listar las tools registradas
-az containerapp exec -n "$WEB" -g $RG --command \
-  "sh -c 'wget -qO- --header=\"Authorization: Bearer \$MCP_API_KEY\" --header=\"Content-Type: application/json\" --header=\"Accept: application/json, text/event-stream\" --post-data=\"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/list\\\"}\" http://$MCP/mcp'"
-
-# 2) Invocar get_market_reference_rates
-az containerapp exec -n "$WEB" -g $RG --command \
-  "sh -c 'wget -qO- --header=\"Authorization: Bearer \$MCP_API_KEY\" --header=\"Content-Type: application/json\" --header=\"Accept: application/json, text/event-stream\" --post-data=\"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":2,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\\\"get_market_reference_rates\\\",\\\"arguments\\\":{}}}\" http://$MCP/mcp'"
-
-# 3) Invocar explain_law_simple (ejemplo: Ley 21.521 Fintech)
-az containerapp exec -n "$WEB" -g $RG --command \
-  "sh -c 'wget -qO- --header=\"Authorization: Bearer \$MCP_API_KEY\" --header=\"Content-Type: application/json\" --header=\"Accept: application/json, text/event-stream\" --post-data=\"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":3,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\\\"explain_law_simple\\\",\\\"arguments\\\":{\\\"lawNumber\\\":\\\"21521\\\"}}}\" http://$MCP/mcp'"
-```
-
-**Salida esperada de `tools/list`:**
-
-```json
-{"jsonrpc":"2.0","id":1,"result":{"tools":[
-  {"name":"get_market_reference_rates","description":"…","inputSchema":{…}},
-  {"name":"explain_law_simple","description":"…","inputSchema":{…}}
-]}}
-```
-
-> **Nota sobre la imagen:** la imagen del web app (Next.js sobre node-alpine) **no incluye `curl`** por default; `wget` sí está. Por eso los ejemplos usan `wget --post-data`. El header `Accept: application/json, text/event-stream` es requerido por el `StreamableHTTPServerTransport` del MCP SDK.
-
-## 6. Camino C — Cliente MCP real (Claude Code, Claude Desktop, IDE) ✅
-
-Desde 2026-05-06 el MCP se expone públicamente con auth bearer (`external: true` en `infra/main.bicep:120`, `minReplicas: 1` para evitar cold starts). FQDN público:
-
-```
-https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io
-```
-
-### Registrar en Claude Code
-
-```bash
-RG=oarocha-fintech
-KV=$(az deployment group show -g $RG -n storage-volume-s1 --query 'properties.outputs.keyVaultName.value' -o tsv)
 BEARER=$(az keyvault secret show --vault-name "$KV" --name mcp-api-key-web --query value -o tsv)
+echo "Bearer recuperado (longitud: ${#BEARER})"
+```
 
+Existe también un clientId `dev` en el JSON `mcp-api-keys` (hashes), pero su plaintext no se persiste — solo se imprime una vez al correr `bootstrap-mcp-api-keys.mjs`. Si lo necesitás, regenerá las keys con ese script (rota ambas a la vez y obliga a re-deployar el web app y a reactualizar headers en clientes).
+
+## 5. Registrar en Claude Code
+
+Una sola línea:
+
+```bash
 claude mcp add --transport http fintech-mcp \
-  https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io/mcp \
+  "https://$MCP_FQDN/mcp" \
   --header "Authorization: Bearer $BEARER"
 ```
 
-Verificá con `/mcp` dentro de Claude Code o `claude mcp list`. Las dos tools (`get_market_reference_rates`, `explain_law_simple`, más las que la otra sesión vaya registrando) aparecen listadas.
+Verificación:
 
-### Otros clientes MCP
+- `claude mcp list` muestra `fintech-mcp`.
+- En Claude Code, `/mcp` lista las tools registradas.
 
-Cualquier cliente que soporte el transport HTTP (Streamable) sirve. Datos de conexión:
+Para remover y re-agregar (rotación de bearer u otro motivo):
+
+```bash
+claude mcp remove fintech-mcp
+# regenerar BEARER si rotaste
+claude mcp add --transport http fintech-mcp "https://$MCP_FQDN/mcp" \
+  --header "Authorization: Bearer $BEARER"
+```
+
+## 6. Otros clientes MCP
+
+Cualquier cliente que soporte transport HTTP (Streamable) sirve. Datos de conexión:
 
 | Campo | Valor |
 |-------|-------|
-| URL | `https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io/mcp` |
+| URL | `https://$MCP_FQDN/mcp` |
 | Method | POST |
 | Auth | `Authorization: Bearer <plaintext de KV/mcp-api-key-web>` |
 | Headers obligatorios | `Content-Type: application/json`, `Accept: application/json, text/event-stream` |
 | Protocol version | `2024-11-05` (negociada en `initialize`) |
 
-### Validación rápida con curl
+## 7. Validación rápida con curl
 
 ```bash
-URL="https://ca-mcp-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io"
-KV=$(az deployment group show -g oarocha-fintech -n storage-volume-s1 --query 'properties.outputs.keyVaultName.value' -o tsv)
-BEARER=$(az keyvault secret show --vault-name "$KV" --name mcp-api-key-web --query value -o tsv)
+# Health (sin auth)
+curl -sS "https://$MCP_FQDN/health"
 
-# Health check (sin auth)
-curl -sS "$URL/health"
-
-# initialize handshake (mandatorio antes de tools/list)
-curl -sS -X POST "$URL/mcp" \
+# initialize handshake (mandatorio antes de tools/list en stateless)
+curl -sS -X POST "https://$MCP_FQDN/mcp" \
   -H "Authorization: Bearer $BEARER" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
 ```
 
-> **Importante sobre stateless:** el MCP corre con `sessionIdGenerator: undefined` (`mcp-server/src/index.ts:62`), o sea cada POST es una nueva sesión. Eso significa que `tools/list` o `tools/call` directos sin `initialize` previo en la misma request devuelven `-32601 Method not found`. Los clientes MCP estándar (Claude Code, etc.) hacen initialize automáticamente, así que no es problema en uso real — solo en tests manuales con curl.
+> **Stateless mode:** el MCP corre con `sessionIdGenerator: undefined` (`mcp-server/src/index.ts`), así que cada POST es una nueva sesión. Llamar a `tools/list` o `tools/call` directo sin `initialize` previo en la misma request devuelve `-32601 Method not found`. Los clientes MCP estándar (Claude Code, etc.) hacen el handshake automáticamente — esto solo afecta tests manuales con curl.
 
-### Seguridad
+## 8. Seguridad y rotación
 
-- Auth bearer obligatoria en `/mcp` POST. Token aleatorio de 32 bytes URL-safe, vive en Key Vault (`mcp-api-key-web`).
+- Auth bearer obligatoria en `/mcp` POST. Token aleatorio de 32 bytes URL-safe (entropía ≈ 256 bits), persistido solo en Key Vault.
 - Logs de auth failure se hashean (no se loguea el bearer plaintext, ver `auth.failure` en logs).
-- Para rotar el bearer: re-correr `node mcp-server/scripts/bootstrap-mcp-api-keys.mjs --vault $KV` y redeployar el web app para que tome el nuevo plaintext (también hay que actualizar el header en Claude Code con `claude mcp remove fintech-mcp` + `claude mcp add` con el nuevo bearer).
-- `external: true` queda en `infra/main.bicep:120`. Si querés revertir a internal, cambiar a `false` y redeployar (rompe los clientes externos).
-
-### Alternativas no implementadas
-
-- **(C2)** Proxy en el web (`web/src/app/api/mcp/route.ts`) que reenvíe POST al MCP interno. Más complejo pero permite mantener `external: false` en el MCP. Útil si querés exponer solo subset de tools o agregar rate limiting al frente.
-- **(C3)** Private Endpoint + VNET integration. Costo extra (~$7/mes), justificable solo en prod si el bearer no alcanza como gate.
-
-## 7. Estado actual del deploy (2026-05-06)
-
-| Recurso | Valor |
-|---------|-------|
-| RG | `oarocha-fintech` |
-| Subscription | Pharmkt Sponsorship |
-| Storage account | `stfintechdevic66pjdlbzw6` |
-| File Share | `mcp-data` (100 GiB cuota, ~300 MB usados, 28 archivos) |
-| Key Vault | `kv-fintech-dev-ic66pjdlb` |
-| MCP container | `ca-mcp-fintech-dev`, revision `0000017`, 1 réplica running |
-| Web container | `ca-web-fintech-dev`, FQDN `ca-web-fintech-dev.ambitiousstone-a9e5f771.eastus.azurecontainerapps.io` |
-| UAI MCP | `uai-mcp-dev` con roles: AcrPull, Key Vault Secrets User |
-| Bearer plaintext | `kv-fintech-dev-ic66pjdlb`/`mcp-api-key-web` |
-
-## 8. Troubleshooting rápido
-
-| Síntoma | Causa probable | Mitigación |
-|---------|---------------|------------|
-| Web responde 200 pero dice "no se pudo alcanzar al MCP server: timeout" | MCP scaled a 0 (minReplicas=0); cold start > 2s | Reintentá tras 30s. Para evitar: `az containerapp update -n ca-mcp-fintech-dev -g $RG --min-replicas 1` (cuesta más, pero responde inmediato). |
-| `wget` desde el web container devuelve `401 Authentication required` | `MCP_API_KEY` env vacía o el bearer revocado | Verificar el secret `mcp-api-key-web` en KV; redeployar el web app. |
-| `wget` devuelve `403 Invalid or revoked key` | El plaintext y los hashes en `mcp-api-keys` se desincronizaron | Re-correr `node mcp-server/scripts/bootstrap-mcp-api-keys.mjs --vault $KV` (rota ambos secrets). Re-deployar mcp + web para que tomen los nuevos. |
-| `containerapp exec` falla con `tty.setcbreak` | Estás en una shell sin TTY (CI, harness, etc.) | Usar terminal real (Terminal.app, iTerm). |
-| `/health` desde web retorna 200 pero `tools/list` devuelve `tools: []` | Boot del MCP falló en registrar las tools (revisar logs `server.tool_registered`) | `az containerapp logs show -n ca-mcp-fintech-dev -g $RG --tail 100` y buscar errores. |
+- **Rotar el bearer:** re-correr `node mcp-server/scripts/bootstrap-mcp-api-keys.mjs --vault $KV` y redeployar el web app para que tome el nuevo plaintext (el MCP toma el hash actualizado en su próximo `KeyStore.warm()`, default cada 60s). También actualizar el header en clientes externos (`claude mcp remove` + `add`).
+- `external: true` queda en `infra/main.bicep`. Bearer es la única defensa al borde — auditá `auth.failure` en logs si ves tráfico raro y rotá si hace falta.
 
 ## 9. Logs
 
-`az containerapp logs show -n ca-mcp-fintech-dev -g $RG --tail 50 --follow`
+```bash
+az containerapp logs show -n "$MCP_NAME" -g $RG --tail 50 --follow
+```
 
 Eventos relevantes:
 
@@ -216,3 +162,21 @@ Eventos relevantes:
 - `auth.failure` — bearer inválido / faltante (sin PII; el header se hashea).
 - `tool.call` — invocación exitosa (con `clientId`, `toolName`, `success`).
 - `mcp.request_failed` — error en handler MCP.
+
+## 10. Troubleshooting rápido
+
+| Síntoma | Causa probable | Mitigación |
+|---------|---------------|------------|
+| `tools/list` directo devuelve `-32601 Method not found` | Falta el handshake `initialize` previo en stateless mode | No es bug; es protocolo. Clientes MCP reales lo hacen automático. Para curl, mandar `initialize` antes. |
+| `401 Authentication required` | Header `Authorization` ausente o vacío | Verificá `BEARER` no esté vacío (`echo ${#BEARER}` debe dar 43). |
+| `403 Invalid or revoked key` | Plaintext y hashes en `mcp-api-keys` se desincronizaron (rotación parcial) | Re-correr `bootstrap-mcp-api-keys.mjs --vault $KV` (rota ambos) y re-actualizar headers en todos los clientes. |
+| Web responde 200 pero dice "no se pudo alcanzar al MCP server: timeout" | MCP scaled a 0 (poco probable hoy con `minReplicas: 1`) | `az containerapp update -n "$MCP_NAME" -g $RG --min-replicas 1`. |
+| `containerapp exec` falla con `tty.setcbreak` | Estás en una shell sin TTY (CI, harness, etc.) | Usar terminal real. |
+| `tools/list` devuelve `tools: []` | Boot del MCP falló en registrar las tools | `az containerapp logs show -n "$MCP_NAME" -g $RG --tail 100` y buscar `server.tool_registered` o errores. |
+
+## 11. Alternativas no implementadas
+
+Si en algún momento querés acotar la superficie sin romper el patrón actual:
+
+- **Proxy en el web** (`web/src/app/api/mcp/route.ts`) que reenvíe POST al MCP con ingress interno. Permite layers extras (rate limiting, allowlist por IP, etc.) entre Internet y el MCP.
+- **Private Endpoint + VNET integration**. Justificable solo en prod cuando bearer no alcance como gate.

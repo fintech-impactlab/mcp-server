@@ -31,7 +31,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 - [x] **S1.6** Probar el mount con archivo de prueba.
   - **AC:** desde el container running, escribir y leer en `/app/data`.
-  - **Verify (ejecutado 2026-05-06 en RG `oarocha-fintech`, revision `ca-mcp-fintech-dev--0000009`):** `az containerapp exec --command 'touch /app/data/_probe.txt'` exitoso; `ls -la /app/data` muestra el archivo con permisos `drwxrwxrwx`; `rm` exitoso. Mount bidireccional confirmado. Nota: `sh -c 'echo > ...'` con redirect requiere doble-quoting raro en `az containerapp exec` — usar comandos sin redirect (`touch`, `cat`) es lo más simple.
+  - **Verify (ejecutado 2026-05-06 en el RG dev del proyecto):** `az containerapp exec --command 'touch /app/data/_probe.txt'` exitoso; `ls -la /app/data` muestra el archivo con permisos `drwxrwxrwx`; `rm` exitoso. Mount bidireccional confirmado. Nota: `sh -c 'echo > ...'` con redirect requiere doble-quoting raro en `az containerapp exec` — usar comandos sin redirect (`touch`, `cat`) es lo más simple.
 
 ---
 
@@ -39,7 +39,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 - [x] **S2.1** Script `upload-data-to-share.mjs`.
   - **AC:** [mcp-server/scripts/upload-data-to-share.mjs](../mcp-server/scripts/upload-data-to-share.mjs) (nuevo). Args: `--storage-account <st> --vault <kv> [--data-dir ./data] [--share mcp-data]`. Lee `storage-account-key` de KV. Ejecuta `az storage file upload-batch` para `*.csv` y `*.xlsx` → `snapshots/cmf/`, y `data/normativas/` → `normativas/` recursivo (preserva `sii/`). `az storage directory create` (idempotente, tolera "already exists") para `snapshots/rpsf/` y `audit/`. Cambio vs plan: directorios vacíos en lugar de `.keep` files (`upload` single file falla con `ParentNotFound` si el dir padre no existe; `directory create` es la primitiva correcta).
-  - **Verify (ejecutado 2026-05-06 contra `stfintechdevic66pjdlbzw6`/`mcp-data`):** 8 archivos en `snapshots/cmf` (4 CSV + 4 XLSX), 12 en `normativas` raíz (6 .md + 6 .pdf), 8 en `normativas/sii` (4 .md + 4 .pdf), directorios `audit` y `snapshots/rpsf` creados. Re-ejecución limpia (idempotente).
+  - **Verify (ejecutado 2026-05-06 contra el storage account dev del proyecto, share `mcp-data`):** 8 archivos en `snapshots/cmf` (4 CSV + 4 XLSX), 12 en `normativas` raíz (6 .md + 6 .pdf), 8 en `normativas/sii` (4 .md + 4 .pdf), directorios `audit` y `snapshots/rpsf` creados. Re-ejecución limpia (idempotente).
 
 - [x] **S2.2** Documentar la sincronización en README.
   - **AC:** [README.md](../README.md) sección "Datos y referencias locales" tiene un bloque "Sincronización al File Share" con: comando del script, qué se sube, cómo agregar nuevas normativas, advertencia de que el File Share es la fuente de verdad en runtime.
@@ -47,20 +47,20 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 - [x] **S2.3** Verificar contenido desde dentro del container.
   - **AC:** estructura completa visible en `/app/data` desde el MCP server.
-  - **Verify (ejecutado 2026-05-06 en revision `ca-mcp-fintech-dev--0000011`):** `find /app/data -type f` lista los 28 archivos esperados — 8 en `snapshots/cmf/` (CSV+XLSX), 12 en `normativas/` raíz (.md+.pdf), 8 en `normativas/sii/` (.md+.pdf). Layout consistente con la jerarquía objetivo del plan.
+  - **Verify (ejecutado 2026-05-06):** `find /app/data -type f` lista los 28 archivos esperados — 8 en `snapshots/cmf/` (CSV+XLSX), 12 en `normativas/` raíz (.md+.pdf), 8 en `normativas/sii/` (.md+.pdf). Layout consistente con la jerarquía objetivo del plan.
 
 ---
 
 ## Checkpoint A — Validación humana antes de eliminar blobs
 
 - [x] **CA.1** Mount estable a través de restarts.
-  - **Verify (2026-05-06, revision `ca-mcp-fintech-dev--0000016`):** post `az containerapp revision restart`, `ls /app/data/normativas/sii` lista los 8 archivos esperados (4 .md + 4 .pdf SII). Mount sobrevive al restart.
+  - **Verify (2026-05-06):** post `az containerapp revision restart`, `ls /app/data/normativas/sii` lista los 8 archivos esperados (4 .md + 4 .pdf SII). Mount sobrevive al restart.
 
 - [x] **CA.2** Performance de lectura aceptable.
   - **Verify (2026-05-06):** `time cat /app/data/snapshots/cmf/creditos_fraudulentos.csv > /dev/null` → `real 0m0.02s` (20ms, 25× bajo el SLA de 500ms).
 
 - [x] **CA.3** Costo del File Share revisado.
-  - **Verify (2026-05-06):** la suscripción es **Pharmkt Sponsorship** y no expone Cost analysis con cifras en el portal (suscripciones sponsorship omiten el desglose). Sustituto: configuración de mínimo costo verificada en Properties del storage account `stfintechdevic66pjdlbzw6` — `Standard_LRS` (no GRS/ZRS), `StorageV2`, `Hot` default tier, secure transfer + TLS 1.2 enabled. File Share `mcp-data` 100 GiB cuota con ~300 MB usados (cobra solo lo usado), tier `TransactionOptimized`. Sin features premium accidentales.
+  - **Verify (2026-05-06):** la suscripción del proyecto es de tipo Sponsorship, que no expone Cost analysis con cifras en el portal. Sustituto: configuración de mínimo costo verificada en Properties del storage account — `Standard_LRS` (no GRS/ZRS), `StorageV2`, `Hot` default tier, secure transfer + TLS 1.2 enabled. File Share `mcp-data` 100 GiB cuota con ~300 MB usados (cobra solo lo usado), tier `TransactionOptimized`. Sin features premium accidentales.
 
 ---
 
@@ -107,7 +107,7 @@ Trabajo en Bicep + script de bootstrap. Sin cambios de código de la app.
 
 - [x] **S4.4** App verde end-to-end (post-deploy).
   - **AC:** flujo completo (deploy → seed key → upload data → request a `/mcp`) pasa con el role assignment removido.
-  - **Verify (2026-05-06, revision `ca-mcp-fintech-dev--0000016`):** redeploy `storage-volume-s1` aplicado. El role `Storage Blob Data Contributor` quedó huérfano (Bicep ARM no borra role assignments al sacarlos del template); se eliminó manualmente con `az role assignment delete --ids`. UAI `uai-mcp-dev` ahora lista solo `Key Vault Secrets User` + `AcrPull`. File Share sigue montando porque el mount usa account key vía CAE storage definition. Reads en `/app/data/normativas/sii` y `time cat` de Checkpoint A confirman que no hubo regresión.
+  - **Verify (2026-05-06):** redeploy aplicado. El role `Storage Blob Data Contributor` quedó huérfano (Bicep ARM no borra role assignments al sacarlos del template); se eliminó manualmente con `az role assignment delete --ids`. UAI `uai-mcp-${env}` ahora lista solo `Key Vault Secrets User` + `AcrPull`. File Share sigue montando porque el mount usa account key vía CAE storage definition. Reads en `/app/data/normativas/sii` y `time cat` de Checkpoint A confirman que no hubo regresión.
 
 ---
 

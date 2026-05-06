@@ -497,8 +497,8 @@ mcp-data/
 **Bootstrap en el primer deploy:**
 
 ```bash
-RG=oarocha-fintech
-DEPLOY=storage-volume-s1
+RG=<your-resource-group>
+DEPLOY=<your-deployment-name>
 ST=$(az deployment group show -g $RG -n $DEPLOY --query 'properties.outputs.storageAccountName.value' -o tsv)
 KV=$(az deployment group show -g $RG -n $DEPLOY --query 'properties.outputs.keyVaultName.value' -o tsv)
 

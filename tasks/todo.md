@@ -13,7 +13,7 @@ Sin esto, los slices siguientes fallan tarde. Pura preparación.
   - **AC:** providers `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.ContainerRegistry`, `Microsoft.Storage`, `Microsoft.KeyVault` en estado `Registered`.
   - **Verify:** `for p in Microsoft.App Microsoft.OperationalInsights Microsoft.Insights Microsoft.ContainerRegistry Microsoft.Storage Microsoft.KeyVault; do az provider show -n $p --query registrationState -o tsv; done` → 6× `Registered`. (Nota: `az provider list` oculta `Microsoft.Insights`, usar `az provider show` per-provider.)
 
-- [x] **1.2** Validar quotas de la suscripción `Pharmkt Sponsorship` para Container Apps en eastus. ✅ 2026-05-05
+- [x] **1.2** Validar quotas de la suscripción para Container Apps en eastus. ✅ 2026-05-05
   - **AC:** Container Apps soportado en eastus + quota de `ManagedEnvironmentCount` disponible. (Consumption no expone quota de vCPU a nivel suscripción; el límite es por replica: 4 vCPU/8 GiB.)
   - **Verify:** `az provider show -n Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations[]" -o tsv | grep "East US"` → `East US`. `az rest --method get --url "https://management.azure.com/subscriptions/<sub>/providers/Microsoft.App/locations/eastus/usages?api-version=2024-03-01"` → `ManagedEnvironmentCount` 0/50.
   - **Side effect:** registrado provider `Microsoft.Quota` (no usado al final, queda registrado).
@@ -28,7 +28,7 @@ Sin esto, los slices siguientes fallan tarde. Pura preparación.
   - **Verify:** `az ad app federated-credential list --id <appId> --query "[].{name:name,subject:subject}" -o table` lista las dos.
 
 - [~] **1.5** ~~Configurar budget alert en el RG~~ — **NO APLICA**. ⚠️ 2026-05-06
-  - **Blocker:** suscripción `Pharmkt Sponsorship` (offerId `MS-AZR-0036P`) no soporta Cost Management API. Tanto `az consumption budget list/show` como PUT vía REST fallan con `400 Cost Management supports only Enterprise Agreement, Web direct and Microsoft Customer Agreement offer types`.
+  - **Blocker:** la suscripción del proyecto (offer Sponsorship `MS-AZR-0036P`) no soporta Cost Management API. Tanto `az consumption budget list/show` como PUT vía REST fallan con `400 Cost Management supports only Enterprise Agreement, Web direct and Microsoft Customer Agreement offer types`.
   - **Mitigación adoptada:** caps duros en infra (scale-to-zero, `maxReplicas: 3`, `cpu: 0.5`, `memory: 1Gi`) en Slices 5.5/6.3 + monitoreo manual del balance en `https://sponsorships.microsoft.com`.
   - **Diferida:** ver 1.5b si se requiere chequeo programático.
 

@@ -73,7 +73,7 @@ Excepción: Slice 1 (bootstrap) y Slice 2 (foundation telemetry) son prerequisit
 
 ## Riesgos identificados
 
-- **Sponsorship con quotas limitadas.** `Pharmkt Sponsorship` puede tener regiones o vCPUs restringidas. Mitigación: validar en Slice 1 antes de escribir cualquier Bicep.
+- **Sponsorship con quotas limitadas.** Las suscripciones tipo Sponsorship pueden tener regiones o vCPUs restringidas. Mitigación: validar en Slice 1 antes de escribir cualquier Bicep.
 - **OIDC desde GitHub a Azure.** Configuración con muchas piezas (App Registration, Federated Credentials, RBAC). Mitigación: probar con un workflow trivial (`az account show`) antes del de deploy.
 - **Costo descontrolado en demo.** Si el lab dispara mucho tráfico, Container Apps puede subir a $40–60. Mitigación: budget alert en Slice 1, scale-to-zero por defecto, max replicas bajo (3).
 - **Imágenes con secretos accidentales.** Riesgo de leak en ACR. Mitigación: `.dockerignore` estricto, scan con `trivy` en CI antes del push.
