@@ -59,7 +59,7 @@ export type McpClientError = {
 
 export type McpResult<T> = { ok: true; data: T } | { ok: false; error: McpClientError };
 
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_PER_CALL_MS = 12_000;
 
 const TOOL_STAGES: Record<string, string> = {
   check_blacklist: "screening",
@@ -96,6 +96,10 @@ function looksLikeUrl(input: string): boolean {
   }
 }
 
+function looksLikeRut(input: string): boolean {
+  return /^\d{1,2}(\.\d{3}){0,2}-[\dkK]$/.test(input.replace(/\s+/g, ""));
+}
+
 function normalizeUrl(input: string): string {
   try {
     return new URL(input).toString();
@@ -106,10 +110,32 @@ function normalizeUrl(input: string): string {
 
 function pickToolCalls(input: string): Array<{ tool: string; arguments: Record<string, unknown> }> {
   const calls: Array<{ tool: string; arguments: Record<string, unknown> }> = [];
+  const isUrl = looksLikeUrl(input);
+  const isRut = looksLikeRut(input);
+
+  // Etapa 1 — screening
   calls.push({ tool: "check_blacklist", arguments: { input } });
-  if (looksLikeUrl(input)) {
-    calls.push({ tool: "analyze_domain", arguments: { url: normalizeUrl(input) } });
+  calls.push({ tool: "check_whitelist", arguments: { input } });
+
+  if (isUrl) {
+    const url = normalizeUrl(input);
+    const domain = new URL(url).hostname.replace(/^www\./, "");
+    // Etapa 2 — análisis técnico
+    calls.push({ tool: "analyze_domain", arguments: { url } });
+    calls.push({ tool: "check_dns_ownership", arguments: { domain } });
+    // Etapa 3 — análisis del negocio
+    calls.push({ tool: "analyze_business_model", arguments: { url } });
   }
+
+  if (isRut) {
+    // Etapa 3 — entidad chilena
+    calls.push({ tool: "verify_chilean_entity", arguments: { rut: input } });
+    calls.push({ tool: "check_regulator_status", arguments: { rutOrName: input } });
+  } else if (!isUrl) {
+    // Nombre de empresa → check regulator por nombre
+    calls.push({ tool: "check_regulator_status", arguments: { rutOrName: input } });
+  }
+
   return calls;
 }
 
@@ -182,12 +208,12 @@ export async function evaluate(input: string): Promise<McpResult<EvaluationResul
   }
 
   const calls = pickToolCalls(input);
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
   const outcomes: ToolOutcome[] = [];
 
   try {
     for (const { tool, arguments: args } of calls) {
       const stage = TOOL_STAGES[tool] ?? "otro";
+      const signal = AbortSignal.timeout(TIMEOUT_PER_CALL_MS);
       try {
         const result = await client.callTool(
           { name: tool, arguments: args },
