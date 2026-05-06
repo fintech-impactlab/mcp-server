@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import express, { type Request, type Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -12,6 +14,7 @@ import { registerTool } from "./server/registry.js";
 import { createAnalyzeDomainTool } from "./tools/analyze_domain/index.js";
 import { createCheckBlacklistTool } from "./tools/check_blacklist/index.js";
 import { createCheckDnsOwnershipTool } from "./tools/check_dns_ownership/index.js";
+import { createCheckRegulatorStatusTool } from "./tools/check_regulator_status/index.js";
 import { createCheckWhitelistTool } from "./tools/check_whitelist/index.js";
 import { createExplainLawSimpleTool } from "./tools/explain_law_simple/index.js";
 import { createGetMarketReferenceRatesTool } from "./tools/get_market_reference_rates/index.js";
@@ -100,6 +103,16 @@ async function main(): Promise<void> {
   registerTool(mcp, createVerifyChileanEntityTool());
   logger.event("server.tool_registered", { toolName: "verify_chilean_entity" });
 
+  registerTool(
+    mcp,
+    createCheckRegulatorStatusTool({
+      cache,
+      storage,
+      fintechileConfig: {},
+    }),
+  );
+  logger.event("server.tool_registered", { toolName: "check_regulator_status" });
+
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -107,15 +120,55 @@ async function main(): Promise<void> {
     res.status(200).json({ status: "ok", name: "fintech-mcp", version: "0.1.0" });
   });
 
-  app.post("/mcp", requireBearer(keyStore), async (req: Request, res: Response) => {
+  // Stateful sessions: el SDK MCP requiere que el state del initialize persista
+  // entre POSTs subsiguientes (tools/list, tools/call). Mantenemos un Map de
+  // transports por sessionId. La Container App corre con maxReplicas: 1 para
+  // que los sessionIds sean siempre stickies (Container Apps consumption no
+  // soporta sticky sessions a nivel de ingress). Si se sube maxReplicas, mover
+  // este Map a un store compartido (Redis / blob).
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const SESSION_TTL_MS = 30 * 60 * 1000; // 30 min de inactividad
+  const sessionLastSeen = new Map<string, number>();
+
+  setInterval(() => {
+    const cutoff = Date.now() - SESSION_TTL_MS;
+    for (const [sid, lastSeen] of sessionLastSeen) {
+      if (lastSeen < cutoff) {
+        const t = transports.get(sid);
+        if (t) {
+          void t.close();
+        }
+        transports.delete(sid);
+        sessionLastSeen.delete(sid);
+        logger.event("mcp.session_evicted", { sessionId: sid, reason: "ttl" });
+      }
+    }
+  }, 5 * 60 * 1000).unref();
+
+  async function handleMcpRequest(req: Request, res: Response): Promise<void> {
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      res.on("close", () => {
-        transport.close();
-      });
-      await mcp.connect(transport);
+      const sessionIdHeader = req.header("mcp-session-id");
+      let transport = sessionIdHeader ? transports.get(sessionIdHeader) : undefined;
+
+      if (!transport) {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (sid: string) => {
+            transports.set(sid, transport!);
+            sessionLastSeen.set(sid, Date.now());
+            logger.event("mcp.session_opened", { sessionId: sid });
+          },
+          onsessionclosed: (sid: string) => {
+            transports.delete(sid);
+            sessionLastSeen.delete(sid);
+            logger.event("mcp.session_closed", { sessionId: sid });
+          },
+        });
+        await mcp.connect(transport);
+      } else {
+        sessionLastSeen.set(sessionIdHeader!, Date.now());
+      }
+
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       logger.event(
@@ -131,15 +184,11 @@ async function main(): Promise<void> {
         });
       }
     }
-  });
+  }
 
-  app.get("/mcp", (_req: Request, res: Response) => {
-    res.status(405).json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed (stateless mode)" },
-      id: null,
-    });
-  });
+  app.post("/mcp", requireBearer(keyStore), handleMcpRequest);
+  app.get("/mcp", requireBearer(keyStore), handleMcpRequest);
+  app.delete("/mcp", requireBearer(keyStore), handleMcpRequest);
 
   app.listen(PORT, "0.0.0.0", () => {
     logger.event("server.listening", { port: PORT });

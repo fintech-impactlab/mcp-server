@@ -119,7 +119,12 @@ module mcpApp './modules/container-app.bicep' = {
     targetPort: 3001
     external: true
     minReplicas: 1
-    maxReplicas: 3
+    // maxReplicas: 1 forzado por el modelo de sesión stateful del MCP server
+    // (transports y session map en memoria del proceso). Container Apps
+    // consumption no soporta sticky sessions a nivel ingress; con > 1 réplica
+    // un cliente que round-robine entre réplicas pierde la sesión. Para subir
+    // a > 1, mover el session store a un backend compartido (Redis / blob).
+    maxReplicas: 1
     cpu: '0.5'
     memory: '1Gi'
     secrets: [

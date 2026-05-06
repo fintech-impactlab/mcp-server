@@ -126,19 +126,46 @@ Cualquier cliente que soporte transport HTTP (Streamable) sirve. Datos de conexi
 
 ## 7. Validación rápida con curl
 
+El server corre en **stateful mode**: cada `initialize` genera un sessionId que el server devuelve en el header `Mcp-Session-Id`, y el cliente lo repite en POSTs subsiguientes. La Container App está configurada con `maxReplicas: 1` para garantizar que el sessionId sea sticky (Container Apps consumption no soporta sticky sessions a nivel ingress).
+
 ```bash
 # Health (sin auth)
 curl -sS "https://$MCP_FQDN/health"
 
-# initialize handshake (mandatorio antes de tools/list en stateless)
+# 1) initialize → captura sessionId del header de respuesta
+SID=$(curl -sS -i -X POST "https://$MCP_FQDN/mcp" \
+  -H "Authorization: Bearer $BEARER" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}' \
+  | grep -i "^mcp-session-id:" | awk '{print $2}' | tr -d '\r\n')
+echo "sessionId: $SID"
+
+# 2) Notificación obligatoria de SDK: notifications/initialized (sin id)
 curl -sS -X POST "https://$MCP_FQDN/mcp" \
   -H "Authorization: Bearer $BEARER" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+# 3) tools/list reusando sessionId
+curl -sS -X POST "https://$MCP_FQDN/mcp" \
+  -H "Authorization: Bearer $BEARER" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# 4) Cierre explícito de sesión
+curl -sS -X DELETE "https://$MCP_FQDN/mcp" \
+  -H "Authorization: Bearer $BEARER" \
+  -H "Mcp-Session-Id: $SID"
 ```
 
-> **Stateless mode:** el MCP corre con `sessionIdGenerator: undefined` (`mcp-server/src/index.ts`), así que cada POST es una nueva sesión. Llamar a `tools/list` o `tools/call` directo sin `initialize` previo en la misma request devuelve `-32601 Method not found`. Los clientes MCP estándar (Claude Code, etc.) hacen el handshake automáticamente — esto solo afecta tests manuales con curl.
+Los clientes MCP estándar (Claude Code, SDK Client) hacen este flow automáticamente — solo importás la URL y el bearer en el cliente.
+
+**Sesiones huérfanas** (cliente que no envía DELETE) se evictan tras 30 min de inactividad por un sweep en memoria del proceso (cleanup cada 5 min). Eventos `mcp.session_opened`, `mcp.session_closed`, `mcp.session_evicted` quedan en logs.
 
 ## 8. Seguridad y rotación
 
