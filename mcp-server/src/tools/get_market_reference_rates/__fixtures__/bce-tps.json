@@ -1,0 +1,14 @@
+{
+  "Codigo": 0,
+  "Series": {
+    "descripIng": "Average Banking System Rate",
+    "descripEsp": "Tasa de interés promedio del sistema bancario",
+    "Obs": [
+      {
+        "indexDateString": "30-04-2026",
+        "value": "12.4",
+        "statusCode": "OK"
+      }
+    ]
+  }
+}

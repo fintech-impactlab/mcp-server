@@ -1,0 +1,14 @@
+{
+  "Codigo": 0,
+  "Series": {
+    "descripIng": "Daily Monetary Policy Rate",
+    "descripEsp": "Tasa de Política Monetaria diaria",
+    "Obs": [
+      {
+        "indexDateString": "06-05-2026",
+        "value": "5.00",
+        "statusCode": "OK"
+      }
+    ]
+  }
+}
