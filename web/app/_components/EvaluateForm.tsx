@@ -47,6 +47,25 @@ function Loading() {
           </p>
         </div>
         <div className="cc-loading-bar" aria-label="Progreso de la consulta" />
+        <ul className="cc-loading-checks" aria-live="polite">
+          <li className="cc-loading-check" data-state="done">
+            <span className="cc-tick">✓</span> Identificamos qué tipo de entrada nos diste
+          </li>
+          <li className="cc-loading-check" data-state="active">
+            <span className="cc-tick cc-tick--pending" aria-hidden="true" /> Buscamos en registros
+            oficiales (CMF · SII · NIC)
+          </li>
+          <li className="cc-loading-check">
+            <span className="cc-tick" aria-hidden="true" /> Cruzamos con listas de alertas y
+            denuncias
+          </li>
+          <li className="cc-loading-check">
+            <span className="cc-tick" aria-hidden="true" /> Revisamos dominio y certificado
+          </li>
+          <li className="cc-loading-check">
+            <span className="cc-tick" aria-hidden="true" /> Cierre y veredicto
+          </li>
+        </ul>
       </div>
     </>
   );

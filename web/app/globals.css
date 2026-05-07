@@ -368,6 +368,41 @@ body {
   color: var(--ink-muted);
   font-size: var(--fs-base);
 }
+.cc-loading-checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  font-size: var(--fs-base);
+  color: var(--ink-muted);
+  width: 100%;
+}
+.cc-loading-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cc-loading-check[data-state="done"] {
+  color: var(--ink);
+}
+.cc-loading-check[data-state="active"] {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+}
+.cc-tick {
+  width: 22px;
+  height: 22px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+}
+.cc-tick--pending {
+  border-style: dashed;
+}
 
 /* ── Error ────────────────────────────────────────────────────── */
 .cc-error {
@@ -599,7 +634,17 @@ body {
   border-top: 1.5px solid var(--border-soft);
 }
 .cc-etapa-body ul {
-  display: flex; flex-direction: column; gap: var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  list-style: none;
+  padding: 0;
+}
+.cc-etapa-body li {
+  padding-left: 0;
+}
+.cc-etapa-body li::before {
+  content: "— ";
+  color: var(--ink-muted);
+  margin-right: 4px;
 }
 .cc-etapa-tools {
   margin-top: var(--sp-4);
