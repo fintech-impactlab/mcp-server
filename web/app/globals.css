@@ -375,11 +375,20 @@ body {
   font-size: var(--fs-base);
   color: var(--ink-muted);
   width: 100%;
+  list-style: none;
+  padding: 0;
 }
 .cc-loading-check {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+}
+.cc-loading-check .cc-tick {
+  border-color: var(--border-soft);
+}
+.cc-loading-check[data-state="done"] .cc-tick,
+.cc-loading-check[data-state="active"] .cc-tick {
+  border-color: currentColor;
 }
 .cc-loading-check[data-state="done"] {
   color: var(--ink);
