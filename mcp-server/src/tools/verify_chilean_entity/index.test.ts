@@ -58,7 +58,7 @@ describe("monthsBetween", () => {
 });
 
 describe("verify_chilean_entity handler — happy path", () => {
-  it("activo + dequienes encontrado → score=10 (sii_activo) y entries pobladas", async () => {
+  it("activo + dequienes encontrado → score=20 (sii_activo +15 + antiguedad_ge_6m +5)", async () => {
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => SII_ACTIVO }),
@@ -84,11 +84,16 @@ describe("verify_chilean_entity handler — happy path", () => {
     assert.equal(response.giros.length, 2);
     assert.equal(response.socios.length, 2);
     assert.equal(response.representantes.length, 1);
-    assert.equal(response.score, 10);
-    assert.equal(response.reasons[0]?.ruleId, "entity.sii_activo");
+    // Modelo positivo: sii_activo (+15) + antiguedad_ge_6m (+5) = 20.
+    assert.equal(response.score, 20);
+    const signalIds = response.reasons
+      .filter((r) => r.kind !== "info")
+      .map((r) => r.ruleId)
+      .sort();
+    assert.deepEqual(signalIds, ["acc.entity.antiguedad_ge_6m", "acc.entity.sii_activo"]);
   });
 
-  it("activo + ageMonths < 6 dispara entity.antiguedad_lt6m", async () => {
+  it("activo con ageMonths < 6: solo sii_activo aplica, antiguedad no acumula", async () => {
     const RECENT_HTML = SII_ACTIVO.replace("15-08-2024", "01-04-2026");
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
@@ -101,12 +106,16 @@ describe("verify_chilean_entity handler — happy path", () => {
     });
     const response = await tool.handler({ rut: "76.123.456-7" });
     assert.equal(response.ageMonths, 1);
-    const ids = response.reasons.map((r) => r.ruleId).sort();
-    assert.deepEqual(ids, ["entity.antiguedad_lt6m", "entity.sii_activo"]);
-    assert.equal(response.score, 0); // +10 - 10
+    const signalIds = response.reasons
+      .filter((r) => r.kind !== "info")
+      .map((r) => r.ruleId)
+      .sort();
+    // Modelo positivo: antigüedad <6m ya no resta; solo sii_activo (+15).
+    assert.deepEqual(signalIds, ["acc.entity.sii_activo"]);
+    assert.equal(response.score, 15);
   });
 
-  it("suspendido suma -20", async () => {
+  it("suspendido no resta y emite info-reason sii_suspendido", async () => {
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => SII_SUSPENDIDO }),
@@ -118,10 +127,19 @@ describe("verify_chilean_entity handler — happy path", () => {
     });
     const response = await tool.handler({ rut: "76.555.555-5" });
     assert.equal(response.siiStatus, "suspendido");
-    assert.equal(response.score, -20);
+    // Bajo el modelo positivo, suspendido ya no resta.
+    assert.equal(response.score, 0);
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.ok(
+      infoIds.includes("info.verify_chilean_entity.sii_suspendido"),
+      `expected sii_suspendido info reason, got ${JSON.stringify(infoIds)}`,
+    );
+    // No hay signal reasons negativas.
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 0);
   });
 
-  it("sin_inicio suma -40", async () => {
+  it("sin_inicio no resta y emite info-reason sii_sin_inicio", async () => {
     const tool = createVerifyChileanEntityTool({
       siiConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => SII_SIN_INICIO }),
@@ -133,7 +151,14 @@ describe("verify_chilean_entity handler — happy path", () => {
     });
     const response = await tool.handler({ rut: "76.999.999-9" });
     assert.equal(response.siiStatus, "sin_inicio");
-    assert.equal(response.score, -40);
+    assert.equal(response.score, 0);
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.ok(
+      infoIds.includes("info.verify_chilean_entity.sii_sin_inicio"),
+      `expected sii_sin_inicio info reason, got ${JSON.stringify(infoIds)}`,
+    );
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 0);
   });
 });
 

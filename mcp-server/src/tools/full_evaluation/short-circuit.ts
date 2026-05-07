@@ -1,21 +1,21 @@
-// Reglas determinísticas de corte temprano para el orquestador. Se aplican
-// después de cada etapa para decidir si vale la pena seguir. No reciben Facts
-// crudos; reciben las salidas reales de las tools de cada etapa.
+// Helpers de mapeo para el orquestador del nuevo motor positivo + cortes.
+// Los cortes ahora vienen del engine vía convención de ruleId
+// (`cut.down.*` y `cut.up.*`); este archivo conserva solo el mapping
+// nivel ↔ verdict legacy y el descriptor humano de cada corte.
 
-import type { Output as BlacklistOutput } from "../check_blacklist/schema.js";
-import type { Output as DomainOutput } from "../analyze_domain/schema.js";
-import type { Output as RegulatorOutput } from "../check_regulator_status/schema.js";
+import type { Reason } from "../../lib/schemas.js";
 import type { LevelId, LevelLabel } from "../../scoring/levels.js";
 
 export type Verdict = "alto_riesgo" | "riesgo_medio" | "sin_senales_negativas";
 
-export interface ShortCircuit {
+export interface CutDescriptor {
   reason: string;
   nivel: LevelId;
   etiqueta: LevelLabel;
+  ruleId: string;
 }
 
-/** Mapping nivel (5) ↔ verdict (3) legacy. */
+/** Mapping nivel (5) ↔ verdict (3) legacy para retro-compat de clientes. */
 export function verdictFromNivel(nivel: LevelId): Verdict {
   if (nivel <= 2) return "alto_riesgo";
   if (nivel === 3) return "riesgo_medio";
@@ -23,62 +23,31 @@ export function verdictFromNivel(nivel: LevelId): Verdict {
 }
 
 /**
- * Corta tras Etapa 1 si la blacklist tiene ≥2 hits con weight ≤ -40.
- * Los pesos se evalúan a partir de las reasons agregadas por el handler.
+ * Detecta el primer corte en una lista de reasons. La convención de IDs es:
+ *   - `cut.down.*` → score=0, nivel=1 (Crítico).
+ *   - `cut.up.*`   → score=90, nivel=5 (Muy confiable).
+ * `down` tiene prioridad sobre `up` cuando ambos coexisten.
  */
-export function shortCircuitAfterStage1(
-  blacklist: BlacklistOutput | null,
-): ShortCircuit | null {
-  if (blacklist === null) return null;
-  const heavyHits = blacklist.reasons.filter((r) => r.weight <= -40).length;
-  if (heavyHits >= 2) {
-    return {
-      reason: `${heavyHits} fuentes de blacklist con peso ≤ -40 confirman alto riesgo; no se requiere análisis adicional.`,
-      nivel: 1,
-      etiqueta: "Crítico",
-    };
+export function cutFromReasons(reasons: ReadonlyArray<Reason>): CutDescriptor | null {
+  for (const r of reasons) {
+    if (r.ruleId.startsWith("cut.down.")) {
+      return {
+        reason: r.fundamento || r.message,
+        nivel: 1,
+        etiqueta: "Crítico",
+        ruleId: r.ruleId,
+      };
+    }
+  }
+  for (const r of reasons) {
+    if (r.ruleId.startsWith("cut.up.")) {
+      return {
+        reason: r.fundamento || r.message,
+        nivel: 5,
+        etiqueta: "Muy confiable",
+        ruleId: r.ruleId,
+      };
+    }
   }
   return null;
-}
-
-/**
- * Corta tras Etapa 3 con verdict positivo si la entidad está autorizada en
- * RPSF Y el dominio tiene >2 años Y el SSL viene de una CA reputada.
- */
-export function shortCircuitAfterStage3(
-  regulator: RegulatorOutput | null,
-  domain: DomainOutput | null,
-): ShortCircuit | null {
-  if (regulator === null || domain === null) return null;
-  if (regulator.estadoRPSF !== "autorizada") return null;
-  const ageDays = domain.domainAgeDays;
-  if (ageDays === null || ageDays < 730) return null;
-  if (domain.sslStatus !== "valid") return null;
-  if (domain.sslIssuer === null) return null;
-  if (issuerIsReputable(domain.sslIssuer)) {
-    return {
-      reason:
-        "Entidad autorizada en RPSF + dominio con más de 2 años + SSL válido emitido por CA reputada: indicadores convergentes positivos.",
-      nivel: 5,
-      etiqueta: "Muy confiable",
-    };
-  }
-  return null;
-}
-
-const REPUTABLE_ISSUERS: ReadonlyArray<string> = [
-  "DigiCert",
-  "Sectigo",
-  "GlobalSign",
-  "Entrust",
-  "GoDaddy",
-  "Amazon",
-  "Google Trust Services",
-  "Microsoft",
-  "GeoTrust",
-];
-
-function issuerIsReputable(issuer: string): boolean {
-  const lower = issuer.toLowerCase();
-  return REPUTABLE_ISSUERS.some((r) => lower.includes(r.toLowerCase()));
 }

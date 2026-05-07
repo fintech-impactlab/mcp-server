@@ -64,7 +64,28 @@ export function createAnalyzeDomainTool(
       const fired = (prefix: string): boolean =>
         [...firedRules].some((id) => id.startsWith(prefix));
       const infoReasons = [];
-      if (whoisResult.dataAvailable && !fired("domain.young_")) {
+      // En modelo positivo+cortes los antiguos `domain.young_*` desaparecieron;
+      // emitimos info-reason si el dominio está bajo el umbral (no dispara
+      // ningún acc.domain.age_*) para preservar trazabilidad de "dominio joven".
+      if (
+        whoisResult.dataAvailable &&
+        ageDays !== null &&
+        ageDays < 30 &&
+        !fired("acc.domain.age_")
+      ) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "domain_young",
+            `Dominio joven (${ageDays} días)`,
+            {
+              fundamento:
+                "Antigüedad <30 días: típica de campañas efímeras de fraude. No suma en el modelo positivo, pero se reporta como info para trazabilidad.",
+              legalRefs: ["EXT-RDAP-RFC-7480"],
+            },
+          ),
+        );
+      } else if (whoisResult.dataAvailable && !fired("acc.domain.age_")) {
         infoReasons.push(
           infoReason(
             TOOL_NAME,
@@ -74,17 +95,17 @@ export function createAnalyzeDomainTool(
               : "WHOIS respondió pero no expone fecha de creación",
             {
               fundamento:
-                "Se consultó WHOIS/RDAP del dominio; antigüedad ≥ 30 días o sin dato → no dispara reglas de dominio joven.",
+                "Se consultó WHOIS/RDAP del dominio; sin fecha de creación o sin acumulable de antigüedad disparada.",
               legalRefs: ["EXT-RDAP-RFC-7480"],
             },
           ),
         );
       }
-      if (
-        sslResult.dataAvailable &&
-        sslResult.classification.sslStatus === "valid" &&
-        !fired("domain.ssl_")
-      ) {
+      // SSL: gating de info-reasons según escenario.
+      //   - Si disparó acc.domain.ssl_valid_reputable → info "tls_valid".
+      //   - Si SSL válido pero CA no reputada → info "tls_valid_non_reputable".
+      //   - Si SSL no válido (self_signed/invalid/expired) o missing → info "tls_issue".
+      if (firedRules.has("acc.domain.ssl_valid_reputable")) {
         infoReasons.push(
           infoReason(
             TOOL_NAME,
@@ -100,25 +121,69 @@ export function createAnalyzeDomainTool(
             },
           ),
         );
-      }
-      if (
-        redirectsResult.dataAvailable &&
-        !firedRules.has("domain.too_many_redirects")
-      ) {
-        const hopsCount = redirectsResult.result.hops.length;
+      } else if (sslResult.dataAvailable && sslResult.classification.sslStatus === "valid") {
         infoReasons.push(
           infoReason(
             TOOL_NAME,
-            "redirects_clean",
-            hopsCount === 0
-              ? "Sin redirecciones HTTP"
-              : `Cadena de ${hopsCount} ${hopsCount === 1 ? "redirección" : "redirecciones"} (≤ 3)`,
+            "tls_valid_non_reputable",
+            `Certificado SSL válido${
+              sslResult.classification.sslIssuer
+                ? ` (issuer: ${sslResult.classification.sslIssuer})`
+                : ""
+            }`,
             {
               fundamento:
-                "Se siguió la cadena de redirecciones; longitud bajo el umbral de cloaking (≥ 4 hops).",
+                "Handshake TLS exitoso pero el issuer no figura en la lista de CA top-tier.",
             },
           ),
         );
+      } else {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "tls_issue",
+            sslResult.dataAvailable
+              ? `Certificado SSL en estado '${sslResult.classification.sslStatus}'`
+              : "Certificado SSL no disponible",
+            {
+              fundamento:
+                "Handshake TLS no entregó un certificado válido (autofirmado, expirado, inválido o ausente). En el modelo positivo+cortes se reporta como info.",
+            },
+          ),
+        );
+      }
+      // Redirects: si superó el umbral (>3) emitimos info-reason; si está limpio
+      // y no disparó acc.domain.no_redirects (raro, sólo si redirectCount es undefined),
+      // emitimos info "redirects_clean".
+      if (redirectsResult.dataAvailable) {
+        const hopsCount = redirectsResult.result.hops.length;
+        if (hopsCount > 3) {
+          infoReasons.push(
+            infoReason(
+              TOOL_NAME,
+              "too_many_redirects",
+              `Cadena larga de redirecciones (${hopsCount} hops)`,
+              {
+                fundamento:
+                  "Cadenas de redirección ≥4 hops opacan el destino real; patrón típico de cloaking. Se reporta como info en el modelo positivo+cortes.",
+              },
+            ),
+          );
+        } else if (!firedRules.has("acc.domain.no_redirects")) {
+          infoReasons.push(
+            infoReason(
+              TOOL_NAME,
+              "redirects_clean",
+              hopsCount === 0
+                ? "Sin redirecciones HTTP"
+                : `Cadena de ${hopsCount} ${hopsCount === 1 ? "redirección" : "redirecciones"} (≤ 3)`,
+              {
+                fundamento:
+                  "Se siguió la cadena de redirecciones; longitud bajo el umbral de cloaking (≥ 4 hops).",
+              },
+            ),
+          );
+        }
       }
 
       const sources = [

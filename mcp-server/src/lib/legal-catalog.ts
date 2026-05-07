@@ -164,6 +164,25 @@ const entries: ReadonlyArray<LegalReference> = [
     citas: [],
   },
   {
+    id: "CL-DFL-3-1997",
+    kind: "ley",
+    titulo: "DFL N° 3 de 1997 — Ley General de Bancos",
+    autoridad: "Congreso Nacional / BCN",
+    vigenciaDesde: "1997-12-19",
+    urlOficial: "https://www.bcn.cl/leychile/navegar?idNorma=83635",
+    citas: [],
+  },
+  {
+    id: "CL-LEY-20712",
+    kind: "ley",
+    titulo:
+      "Ley 20.712 — Administración de fondos de terceros y carteras individuales (Ley Única de Fondos)",
+    autoridad: "Congreso Nacional / BCN",
+    vigenciaDesde: "2014-01-07",
+    urlOficial: "https://www.bcn.cl/leychile/navegar?idNorma=1058092",
+    citas: [],
+  },
+  {
     id: "CL-LEY-18010",
     kind: "ley",
     titulo:

@@ -81,7 +81,7 @@ describe("classifyFullEvalInput", () => {
 });
 
 describe("full_evaluation — happy path: nombre genérico, sin señales", () => {
-  it("ejecuta etapas 1, 3 y 5; retorna OutputSchema válido + verdict 'sin_senales_negativas'", async () => {
+  it("ejecuta etapas 1, 3 y 5; sin señales positivas → score=0, nivel=1 (Crítico)", async () => {
     const tool = createFullEvaluationTool({
       checkBlacklist: async () => blacklistEmpty,
       checkWhitelist: async () => whitelistEmpty,
@@ -109,7 +109,9 @@ describe("full_evaluation — happy path: nombre genérico, sin señales", () =>
     const parsed = OutputSchema.safeParse(response);
     assert.equal(parsed.success, true, parsed.success ? "" : JSON.stringify(parsed.error.issues));
     assert.equal(response.totalScore, 0);
-    assert.equal(response.verdict, "sin_senales_negativas");
+    // Sin señales positivas en el nuevo motor → nivel 1 (Crítico) → alto_riesgo.
+    assert.equal(response.verdict, "alto_riesgo");
+    assert.equal(response.nivel, 1);
     assert.equal(response.stoppedAt, null);
     assert.equal(response.tipoEntidad, "desconocido");
     assert.equal(response.recomendaciones.length, 1);
@@ -118,18 +120,17 @@ describe("full_evaluation — happy path: nombre genérico, sin señales", () =>
 });
 
 describe("full_evaluation — short-circuit en Etapa 1", () => {
-  it("≥2 hits con weight ≤ -40 → corta; etapas 2/3/4 no se ejecutan", async () => {
+  it("hit con ruleId 'cut.down.*' → corta; etapas 2/3/4 no se ejecutan", async () => {
     const blacklistHeavy: BlacklistOutput = {
       ...blacklistEmpty,
-      score: -90,
+      score: 0,
       reasons: [
         {
-          ruleId: "blacklist.cmf_plataformas_no_reguladas",
-          weight: -50,
+          ruleId: "cut.down.blacklist.phishtank",
+          weight: 0,
           message: "x",
           fundamento: "x",
         },
-        { ruleId: "blacklist.phishtank", weight: -40, message: "x", fundamento: "x" },
       ],
       inBlacklist: true,
     };
@@ -146,6 +147,8 @@ describe("full_evaluation — short-circuit en Etapa 1", () => {
     const response = await tool.handler({ input: "https://scam.example/", text: undefined, situacion: undefined });
     assert.equal(response.stoppedAt, "etapa_1");
     assert.equal(response.verdict, "alto_riesgo");
+    assert.equal(response.nivel, 1);
+    assert.equal(response.totalScore, 0);
     assert.ok(response.shortCircuitReason !== null);
     assert.equal(domainCalled, false);
     // Etapa 5 sí corre (canales se entregan siempre)
@@ -157,7 +160,7 @@ describe("full_evaluation — short-circuit en Etapa 1", () => {
 });
 
 describe("full_evaluation — short-circuit en Etapa 3 (positivo)", () => {
-  it("RPSF autorizada + dominio antiguo + DigiCert → corte positivo", async () => {
+  it("regulator emite reason con ruleId 'cut.up.*' → corte positivo en etapa_3", async () => {
     const tool = createFullEvaluationTool({
       checkBlacklist: async () => blacklistEmpty,
       checkWhitelist: async () => whitelistEmpty,
@@ -187,21 +190,21 @@ describe("full_evaluation — short-circuit en Etapa 3 (positivo)", () => {
         adminContacts: [],
       }),
       checkRegulatorStatus: async (): Promise<RegulatorOutput> => ({
-        score: 25,
+        score: 0,
         reasons: [
           {
-            ruleId: "regulator.rpsf_autorizada_y_giro_consistente",
-            weight: 25,
+            ruleId: "cut.up.regulator.banco_reconocido",
+            weight: 0,
             message: "x",
             fundamento: "x",
           },
         ],
         sources: [],
         query: "Ejemplo",
-        tipoEntidad: "fintech",
-        estadoRPSF: "autorizada",
-        numeroRegistro: "RPSF-0042",
-        membresiaFinteChile: true,
+        tipoEntidad: "banco",
+        estadoRPSF: "no_registrada",
+        numeroRegistro: null,
+        membresiaFinteChile: false,
         giroConsistente: true,
         normativasAplicables: [],
       }),
@@ -210,6 +213,8 @@ describe("full_evaluation — short-circuit en Etapa 3 (positivo)", () => {
     const response = await tool.handler({ input: "https://ejemplo.cl/", text: undefined, situacion: undefined });
     assert.equal(response.stoppedAt, "etapa_3");
     assert.equal(response.verdict, "sin_senales_negativas");
+    assert.equal(response.nivel, 5);
+    assert.equal(response.totalScore, 90);
   });
 });
 
@@ -300,9 +305,12 @@ describe("full_evaluation — flujo completo URL con BM", () => {
       situacion: undefined,
     });
     assert.equal(response.stoppedAt, null);
-    // Total score = 0 (e1) + (-40 + -15) (e2) + 0 (e3) + (-55) (e4) = -110
-    assert.equal(response.totalScore, -110);
+    // Suma cruda: 0 (e1) + (-40 + -15) (e2) + 0 (e3) + (-55) (e4) = -110.
+    // El nuevo motor clampa a [SCORE_FLOOR=0, SCORE_CEILING=90] → 0.
+    assert.equal(response.totalScore, 0);
+    // Sin señales positivas → nivel 1 → alto_riesgo.
     assert.equal(response.verdict, "alto_riesgo");
+    assert.equal(response.nivel, 1);
     const stages = response.breakdown.map((b) => b.stage).sort();
     assert.deepEqual(stages, ["etapa_1", "etapa_2", "etapa_3", "etapa_4", "etapa_5"]);
   });
@@ -417,8 +425,9 @@ describe("full_evaluation — propaga regulation.reasons (Slice O1)", () => {
       "CL-LEY-21521-art-5",
       "CMF-NCG-514-2024",
     ]);
-    // Score total no cambia: solo etapa_1 aporta (-40), regulation peso 0.
-    assert.equal(response.totalScore, -40);
+    // Score crudo: solo etapa_2 aporta (-40), regulation peso 0. Nuevo motor
+    // clampa a [SCORE_FLOOR=0, SCORE_CEILING=90] → 0.
+    assert.equal(response.totalScore, 0);
   });
 });
 

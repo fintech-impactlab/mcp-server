@@ -1,199 +1,238 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { score } from "../engine.js";
-import { rules, type Facts, type Rule } from "../rules.js";
+import { detectCutInReasons, score } from "../engine.js";
+import { rules, SCORE_CEILING, SCORE_FLOOR, type Facts, type Rule } from "../rules.js";
 
-describe("score — basic behavior", () => {
-  it("returns score 0 with no reasons when no rule matches", () => {
+describe("score — comportamiento básico", () => {
+  it("score=0 con cut=null y reasons vacías cuando no matchea nada", () => {
     const result = score({});
     assert.equal(result.score, 0);
     assert.deepEqual(result.reasons, []);
+    assert.equal(result.cut, null);
   });
 
-  it("sums weights of all matching rules and lists their reasons", () => {
+  it("acumula pesos de gateways y accumulables", () => {
+    const facts: Facts = {
+      whitelist: { rpsfStatus: "en_revision", fintechileMembership: true },
+      entity: { siiStatus: "activo", ageMonths: 12 },
+    };
+    const result = score(facts);
+    // gateway.rpsf_en_revision (+30) + gateway.fintechile (+20)
+    // + acc.sii_activo (+15) + acc.antiguedad_ge_6m (+5) = 70
+    assert.equal(result.score, 70);
+    assert.equal(result.cut, null);
+    const ids = result.reasons.map((r) => r.ruleId).sort();
+    assert.deepEqual(ids, [
+      "acc.entity.antiguedad_ge_6m",
+      "acc.entity.sii_activo",
+      "gateway.whitelist.fintechile_miembro",
+      "gateway.whitelist.rpsf_en_revision",
+    ]);
+  });
+
+  it("clampa a SCORE_CEILING cuando la suma supera 90", () => {
+    const facts: Facts = {
+      whitelist: { rpsfStatus: "en_revision", fintechileMembership: true },
+      regulator: { enListaBancos: true, giroConsistente: true },
+      entity: { siiStatus: "activo", ageMonths: 12 },
+      domain: { ageDays: 1000, sslStatus: "valid", sslIssuer: "DigiCert", redirectCount: 0 },
+      dns: { registrantCountry: "CL", registrantAnonymized: false },
+    };
+    const result = score(facts);
+    assert.equal(result.score, SCORE_CEILING);
+    assert.equal(result.cut, null);
+  });
+
+  it("clampa a SCORE_FLOOR (no se vuelve negativo)", () => {
+    const result = score({});
+    assert.ok(result.score >= SCORE_FLOOR);
+  });
+});
+
+describe("score — cortes", () => {
+  it("cut_down: blacklist hit retorna score=0 e ignora demás reglas", () => {
+    const facts: Facts = {
+      blacklist: { sources: ["phishtank"] },
+      whitelist: { rpsfStatus: "autorizada" }, // no debe contar
+      entity: { siiStatus: "activo" },
+    };
+    const result = score(facts);
+    assert.equal(result.score, 0);
+    assert.equal(result.cut, "down");
+    assert.equal(result.reasons.length, 1);
+    assert.ok(result.reasons[0]?.ruleId.startsWith("cut.down."));
+  });
+
+  it("cut_up: rpsf_autorizada retorna score=90 e ignora gateways", () => {
     const facts: Facts = {
       whitelist: { rpsfStatus: "autorizada", fintechileMembership: true },
       entity: { siiStatus: "activo" },
     };
     const result = score(facts);
-    // rpsf_autorizada (+50) + fintechile_miembro (+15) + sii_activo (+10)
-    assert.equal(result.score, 75);
-    assert.equal(result.reasons.length, 3);
-    const ids = result.reasons.map((r) => r.ruleId).sort();
-    assert.deepEqual(ids, [
-      "entity.sii_activo",
-      "whitelist.fintechile_miembro",
-      "whitelist.rpsf_autorizada",
-    ]);
-    for (const reason of result.reasons) {
-      assert.ok(reason.fundamento.length > 0);
-      assert.ok(reason.message.length > 0);
-      assert.equal(Number.isInteger(reason.weight), true);
-    }
+    assert.equal(result.score, SCORE_CEILING);
+    assert.equal(result.cut, "up");
+    assert.equal(result.reasons.length, 1);
+    assert.equal(result.reasons[0]?.ruleId, "cut.up.whitelist.rpsf_autorizada");
   });
 
-  it("combines positive and negative facts into a net score", () => {
+  it("cut_down tiene prioridad sobre cut_up", () => {
     const facts: Facts = {
-      whitelist: { rpsfStatus: "en_revision" }, // +10
-      domain: { ageDays: 5 }, // -40 (young_lt7d)
+      blacklist: { sources: ["phishtank"] },
+      whitelist: { rpsfStatus: "autorizada" },
     };
     const result = score(facts);
-    assert.equal(result.score, -30);
-  });
-
-  it("can be called with an injected rule set (no implicit defaults)", () => {
-    const customRules: Rule[] = [
-      {
-        id: "custom.always",
-        category: "domain",
-        weight: 7,
-        reason: "custom rule for tests",
-        fundamento: "test-only",
-        appliesToNonCmf: true,
-        predicate: () => true,
-      },
-    ];
-    const result = score({}, { rules: customRules });
-    assert.equal(result.score, 7);
-    assert.equal(result.reasons[0]?.ruleId, "custom.always");
+    assert.equal(result.cut, "down");
+    assert.equal(result.score, 0);
   });
 });
 
-describe("score — determinismo", () => {
-  it("returns exactly the same output across 1000 invocations with the same facts", () => {
-    const facts: Facts = {
-      domain: { ageDays: 12, sslIssuer: "Let's Encrypt", sslStatus: "valid" },
-      blacklist: { sources: ["phishtank"] },
-      whitelist: { rpsfStatus: "no_registrada" },
-      entity: { siiStatus: "activo", ageMonths: 4 },
-    };
-    const reference = score(facts);
-    for (let i = 0; i < 1000; i += 1) {
-      const result = score(facts);
-      assert.deepEqual(result, reference, `non-deterministic at i=${i}`);
-    }
+describe("score — gateways y reglas nuevas", () => {
+  it("banco_reconocido aporta +50", () => {
+    const result = score({ regulator: { enListaBancos: true } });
+    assert.equal(result.score, 50);
+    assert.equal(result.reasons[0]?.ruleId, "gateway.regulator.banco_reconocido");
   });
 
-  it("does not depend on insertion order of facts", () => {
-    const a: Facts = {
-      whitelist: { rpsfStatus: "autorizada" },
-      entity: { siiStatus: "activo" },
-    };
-    const b: Facts = {
-      entity: { siiStatus: "activo" },
-      whitelist: { rpsfStatus: "autorizada" },
-    };
-    assert.equal(score(a).score, score(b).score);
+  it("agf_reconocida aporta +50", () => {
+    const result = score({ regulator: { enListaAgf: true } });
+    assert.equal(result.score, 50);
+    assert.equal(result.reasons[0]?.ruleId, "gateway.regulator.agf_reconocida");
+  });
+});
+
+describe("score — domain age mutually exclusive", () => {
+  it("ageDays >= 730 → +10 (ge_2y), no dispara ge_30d", () => {
+    const result = score({ domain: { ageDays: 1000 } });
+    const ids = result.reasons.map((r) => r.ruleId);
+    assert.ok(ids.includes("acc.domain.age_ge_2y"));
+    assert.ok(!ids.includes("acc.domain.age_ge_30d"));
+    assert.equal(result.score, 10);
+  });
+
+  it("30 <= ageDays < 730 → +5 (ge_30d), no dispara ge_2y", () => {
+    const result = score({ domain: { ageDays: 100 } });
+    const ids = result.reasons.map((r) => r.ruleId);
+    assert.ok(ids.includes("acc.domain.age_ge_30d"));
+    assert.ok(!ids.includes("acc.domain.age_ge_2y"));
+    assert.equal(result.score, 5);
+  });
+
+  it("ageDays < 30 no dispara ninguna regla de antigüedad", () => {
+    const result = score({ domain: { ageDays: 5 } });
+    const ids = result.reasons.map((r) => r.ruleId);
+    assert.ok(!ids.includes("acc.domain.age_ge_30d"));
+    assert.ok(!ids.includes("acc.domain.age_ge_2y"));
+  });
+});
+
+describe("score — SSL reputable", () => {
+  it("SSL valid + DigiCert → +10", () => {
+    const result = score({
+      domain: { sslStatus: "valid", sslIssuer: "DigiCert Inc" },
+    });
+    assert.equal(result.score, 10);
+  });
+
+  it("SSL valid + Google Trust Services → +10", () => {
+    const result = score({
+      domain: { sslStatus: "valid", sslIssuer: "Google Trust Services" },
+    });
+    assert.equal(result.score, 10);
+  });
+
+  it("SSL valid pero issuer no reputado → 0", () => {
+    const result = score({
+      domain: { sslStatus: "valid", sslIssuer: "Random CA Inc" },
+    });
+    assert.equal(result.score, 0);
+  });
+
+  it("SSL invalid no dispara regla positiva", () => {
+    const result = score({
+      domain: { sslStatus: "invalid", sslIssuer: "DigiCert" },
+    });
+    assert.equal(result.score, 0);
   });
 });
 
 describe("score — propagación de legalRefs", () => {
-  it("copia legalRefs de la regla al ScoreReason cuando el predicate matchea", () => {
-    const facts: Facts = { whitelist: { rpsfStatus: "autorizada" } };
-    const result = score(facts);
-    const r = result.reasons.find((x) => x.ruleId === "whitelist.rpsf_autorizada");
-    assert.ok(r, "regla esperada no matcheó");
-    assert.deepEqual(
-      r.legalRefs,
-      ["CL-LEY-21521-art-5", "CMF-NCG-514-2024", "CMF-RPSF-LISTADO"],
-    );
+  it("copia legalRefs cuando la regla las define", () => {
+    const result = score({ whitelist: { rpsfStatus: "autorizada" } });
+    const r = result.reasons.find((x) => x.ruleId === "cut.up.whitelist.rpsf_autorizada");
+    assert.ok(r);
+    assert.deepEqual(r.legalRefs, ["CL-LEY-21521-art-5", "CMF-NCG-514-2024", "CMF-RPSF-LISTADO"]);
   });
 
-  it("omite legalRefs en ScoreReason si la regla no las define", () => {
+  it("omite legalRefs si la regla no las define", () => {
     const customRules: Rule[] = [
       {
         id: "custom.no_refs",
         category: "domain",
+        kind: "accumulable",
         weight: 1,
         reason: "test",
         fundamento: "test",
-        appliesToNonCmf: true,
         predicate: () => true,
       },
     ];
     const result = score({}, { rules: customRules });
     assert.equal("legalRefs" in (result.reasons[0] ?? {}), false);
   });
+});
 
-  it("preserva legalRefs vacío como array (no undefined)", () => {
-    const facts: Facts = { domain: { ageDays: 3 } };
-    const result = score(facts);
-    const r = result.reasons.find((x) => x.ruleId === "domain.young_lt7d");
-    assert.ok(r);
-    assert.deepEqual(r.legalRefs, []);
+describe("score — determinismo", () => {
+  it("1000 invocaciones con mismos facts → output exacto", () => {
+    const facts: Facts = {
+      whitelist: { rpsfStatus: "en_revision" },
+      entity: { siiStatus: "activo", ageMonths: 24 },
+      domain: { ageDays: 1500, sslStatus: "valid", sslIssuer: "Sectigo", redirectCount: 1 },
+      dns: { registrantCountry: "CL", registrantAnonymized: false },
+    };
+    const ref = score(facts);
+    for (let i = 0; i < 1000; i += 1) {
+      assert.deepEqual(score(facts), ref, `non-deterministic at i=${i}`);
+    }
   });
 });
 
-describe("score — perfil no_cmf", () => {
-  it("ignora reglas con appliesToNonCmf=false bajo profile no_cmf", () => {
-    const facts: Facts = {
-      whitelist: { rpsfStatus: "autorizada", fintechileMembership: true },
-      blacklist: { sources: ["cmf-plataformas-no-reguladas", "phishtank"] },
-      regulator: { tipoEntidad: "fintech", estadoRPSF: "no_registrada" },
-      entity: { siiStatus: "activo" },
-      businessModel: { promesaRentabilidadIrreal: true, lenguajeVago: true },
-    };
-    const cmf = score(facts, { profile: "cmf" });
-    const noCmf = score(facts, { profile: "no_cmf" });
-
-    const noCmfIds = new Set(noCmf.reasons.map((r) => r.ruleId));
-    // 11 reglas CMF-only no aparecen en no_cmf, aunque sus facts gatillen.
-    for (const id of [
-      "whitelist.rpsf_autorizada",
-      "whitelist.fintechile_miembro",
-      "blacklist.cmf_plataformas_no_reguladas",
-      "regulator.fintech_no_registrada",
-      "bm.promesa_rentabilidad_irreal",
-    ]) {
-      assert.equal(noCmfIds.has(id), false, `${id} no debería estar en perfil no_cmf`);
-    }
-    // Las reglas generales sí aplican.
-    for (const id of ["blacklist.phishtank", "entity.sii_activo", "bm.lenguaje_vago"]) {
-      assert.equal(noCmfIds.has(id), true, `${id} debería estar en perfil no_cmf`);
-    }
-    // Las reasons de no_cmf son subset estricto de las de cmf.
-    const cmfIds = new Set(cmf.reasons.map((r) => r.ruleId));
-    for (const id of noCmfIds) {
-      assert.equal(cmfIds.has(id), true, `regla ${id} aparece en no_cmf pero no en cmf`);
-    }
+describe("detectCutInReasons", () => {
+  it("retorna 'down' si hay alguna reason con ruleId 'cut.down.*'", () => {
+    const cut = detectCutInReasons([
+      { ruleId: "info.foo" },
+      { ruleId: "cut.down.blacklist.phishtank" },
+    ]);
+    assert.equal(cut, "down");
   });
 
-  it("totalScore en no_cmf es distinto al de cmf cuando hay reglas filtradas", () => {
-    const facts: Facts = {
-      whitelist: { rpsfStatus: "autorizada" },
-      entity: { siiStatus: "activo" },
-    };
-    const cmf = score(facts, { profile: "cmf" });
-    const noCmf = score(facts, { profile: "no_cmf" });
-    assert.equal(cmf.score, 60); // +50 + +10
-    assert.equal(noCmf.score, 10); // solo +10 (entity.sii_activo)
+  it("retorna 'up' si solo hay cut.up.*", () => {
+    const cut = detectCutInReasons([
+      { ruleId: "info.foo" },
+      { ruleId: "cut.up.whitelist.rpsf_autorizada" },
+    ]);
+    assert.equal(cut, "up");
   });
 
-  it("determinismo: 1000 invocaciones perfil no_cmf con mismos facts → output exacto", () => {
-    const facts: Facts = {
-      domain: { ageDays: 5, sslStatus: "missing" },
-      blacklist: { sources: ["phishtank"] },
-      entity: { siiStatus: "suspendido" },
-    };
-    const reference = score(facts, { profile: "no_cmf" });
-    for (let i = 0; i < 1000; i += 1) {
-      const result = score(facts, { profile: "no_cmf" });
-      assert.deepEqual(result, reference, `non-deterministic at i=${i}`);
-    }
+  it("'down' tiene prioridad sobre 'up' si conviven", () => {
+    const cut = detectCutInReasons([
+      { ruleId: "cut.up.whitelist.rpsf_autorizada" },
+      { ruleId: "cut.down.blacklist.phishtank" },
+    ]);
+    assert.equal(cut, "down");
+  });
+
+  it("retorna null si no hay cuts", () => {
+    const cut = detectCutInReasons([
+      { ruleId: "acc.domain.age_ge_2y" },
+      { ruleId: "info.something" },
+    ]);
+    assert.equal(cut, null);
   });
 });
 
 describe("score — exhaustividad de reglas", () => {
-  it("hits every rule in the default set with appropriate facts (positive cases)", () => {
+  it("cada regla del catálogo es alcanzable con algún Facts", () => {
     const allHits: Facts[] = [
-      { domain: { ageDays: 3 } }, // young_lt7d
-      { domain: { ageDays: 20 } }, // young_lt30d
-      { domain: { ageDays: 30, sslIssuer: "Let's Encrypt" } }, // ssl_lets_encrypt_recent
-      { domain: { sslStatus: "self_signed" } },
-      { domain: { sslStatus: "invalid" } },
-      { domain: { sslStatus: "missing" } },
-      { domain: { redirectCount: 5 } }, // too_many_redirects
       { blacklist: { sources: ["cmf-plataformas-no-reguladas"] } },
       { blacklist: { sources: ["cmf-creditos-fraudulentos"] } },
       { blacklist: { sources: ["cmf-apps-creditos-no-reguladas"] } },
@@ -203,27 +242,28 @@ describe("score — exhaustividad de reglas", () => {
       { whitelist: { rpsfStatus: "autorizada" } },
       { whitelist: { rpsfStatus: "en_revision" } },
       { whitelist: { fintechileMembership: true } },
-      { dns: { registrantCountry: "CL" } },
-      { dns: { registrantAnonymized: true } },
+      { regulator: { enListaBancos: true } },
+      { regulator: { enListaAgf: true } },
+      { regulator: { giroConsistente: true } },
       { entity: { siiStatus: "activo" } },
-      { entity: { siiStatus: "suspendido" } },
-      { entity: { siiStatus: "sin_inicio" } },
-      { entity: { ageMonths: 3 } }, // entity.antiguedad_lt6m
-      { regulator: { estadoRPSF: "autorizada", giroConsistente: true } },
-      { regulator: { tipoEntidad: "fintech", estadoRPSF: "no_registrada" } },
-      { businessModel: { promesaRentabilidadIrreal: true } },
-      { businessModel: { estructuraReferidos: true } },
-      { businessModel: { lenguajeVago: true } },
-      { businessModel: { ausenciaInfoLegal: true } },
+      { entity: { siiStatus: "activo", ageMonths: 12 } },
+      { domain: { ageDays: 1000 } },
+      { domain: { ageDays: 60 } },
+      { domain: { sslStatus: "valid", sslIssuer: "DigiCert" } },
+      { domain: { redirectCount: 0 } },
+      { dns: { registrantAnonymized: false } },
+      { dns: { registrantCountry: "CL" } },
+      { businessModel: { ausenciaInfoLegal: false } },
+      { businessModel: { promesaRentabilidadIrreal: false } },
+      { businessModel: { estructuraReferidos: false } },
+      { businessModel: { lenguajeVago: false } },
     ];
-    const matchedIds = new Set<string>();
+    const matched = new Set<string>();
     for (const facts of allHits) {
-      for (const reason of score(facts).reasons) {
-        matchedIds.add(reason.ruleId);
-      }
+      for (const r of score(facts).reasons) matched.add(r.ruleId);
     }
     for (const rule of rules) {
-      assert.ok(matchedIds.has(rule.id), `no positive case hits rule ${rule.id}`);
+      assert.ok(matched.has(rule.id), `regla ${rule.id} no alcanzable`);
     }
   });
 });

@@ -58,11 +58,28 @@ export function createCheckDnsOwnershipTool(
       };
       const scored: ScoreResult = score(facts);
 
-      // Info reason: si la fuente respondió OK y no disparó ninguna regla DNS.
+      // Info reasons:
+      //   - Si registrante anonimizado: info "registrant_anonimo" (señal antes
+      //     negativa, ahora trazada sin afectar score en modelo positivo+cortes).
+      //   - Si fuente OK y no disparó ninguna acumulable acc.dns.*: info "verified".
       const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
-      const dnsRuleFired = [...firedRules].some((id) => id.startsWith("dns."));
+      const dnsAccFired = [...firedRules].some((id) => id.startsWith("acc.dns."));
       const infoReasons = [];
-      if (lookup.dataAvailable && !dnsRuleFired) {
+      if (lookup.dataAvailable && lookup.adminAnonymized) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "registrant_anonimo",
+            "Registrante WHOIS/RDAP anonimizado (REDACTED / privacy proxy)",
+            {
+              fundamento:
+                "Datos de registrante ocultos por servicio de privacy o redacted policy. Reduce trazabilidad pero no constituye señal definitiva en modelo positivo+cortes.",
+              legalRefs: [useRdap ? "EXT-NIC-CL-POL" : "EXT-RDAP-RFC-7480"],
+            },
+          ),
+        );
+      }
+      if (lookup.dataAvailable && !dnsAccFired && !lookup.adminAnonymized) {
         infoReasons.push(
           infoReason(
             TOOL_NAME,

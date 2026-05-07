@@ -84,7 +84,7 @@ describe("check_blacklist handler — happy path: CMF only", () => {
     assert.equal(response.reasons[0]?.ruleId, "info.check_blacklist.cmf_alertas_no_match");
   });
 
-  it("returns hit + matching scoring rule when input matches a CMF entry by URL", async () => {
+  it("returns hit + cut_down scoring rule when input matches a CMF entry by URL", async () => {
     const tool = createCheckBlacklistTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -100,9 +100,15 @@ describe("check_blacklist handler — happy path: CMF only", () => {
     assert.equal(response.inBlacklist, true);
     assert.equal(response.hits.length, 1);
     assert.equal(response.hits[0]?.source, "cmf-plataformas-no-reguladas");
-    assert.equal(response.score, -70);
-    assert.equal(response.reasons.length, 1);
-    assert.equal(response.reasons[0]?.ruleId, "blacklist.cmf_plataformas_no_reguladas");
+    // Modelo positivo + cortes: cualquier hit en blacklist fija score=0 (cut_down).
+    assert.equal(response.score, 0);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 1);
+    assert.ok(
+      signalReasons[0]?.ruleId.startsWith("cut.down.blacklist."),
+      `expected cut.down.blacklist.* ruleId, got ${signalReasons[0]?.ruleId}`,
+    );
+    assert.equal(signalReasons[0]?.weight, 0);
   });
 
   it("matches by name (case-insensitive substring) when input is a name", async () => {
@@ -116,7 +122,7 @@ describe("check_blacklist handler — happy path: CMF only", () => {
     assert.equal(response.hits[0]?.source, "cmf-plataformas-no-reguladas");
   });
 
-  it("aggregates multiple CMF hits across different listados into reasons (deduped)", async () => {
+  it("aggregates multiple CMF hits but the first cut_down short-circuits the score", async () => {
     const tool = createCheckBlacklistTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -126,13 +132,17 @@ describe("check_blacklist handler — happy path: CMF only", () => {
       ],
     });
     const response = await tool.handler({ input: "scam.example.com" });
+    // Hits multi-listado se siguen reportando en el output…
     assert.equal(response.hits.length, 2);
-    const ruleIds = response.reasons.map((r) => r.ruleId).sort();
-    assert.deepEqual(ruleIds, [
-      "blacklist.cmf_creditos_fraudulentos",
-      "blacklist.cmf_plataformas_no_reguladas",
-    ]);
-    assert.equal(response.score, -140);
+    // …pero el motor corta: una sola signal reason cut.down.* y score=0.
+    assert.equal(response.score, 0);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 1);
+    assert.ok(
+      signalReasons[0]?.ruleId.startsWith("cut.down.blacklist."),
+      `expected cut.down.blacklist.* ruleId, got ${signalReasons[0]?.ruleId}`,
+    );
+    assert.equal(signalReasons[0]?.weight, 0);
   });
 });
 

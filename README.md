@@ -319,18 +319,51 @@ El MCP corre en Azure Container Apps con autenticación Bearer obligatoria. Cual
 
 ## Sistema de scoring
 
-El MCP calcula scores mediante un **motor de reglas determinístico**, no mediante un LLM.
+El MCP calcula scores mediante un **motor de reglas determinístico**, no mediante un LLM. **Modelo positivo + cortes**: los pesos van de `0` a `90` y solo dos eventos detienen la cadena: blacklist (corte ↓ a 0) y whitelist hard (corte ↑ a 90). Las demás señales suman.
 
-Cada tool retorna un score parcial calculado por reglas explícitas y auditables. El cliente puede sumar los scores parciales para obtener un score consolidado, o usar `full_evaluation` para obtenerlo ya calculado.
+### Tipos de regla
+
+| Tipo | Comportamiento |
+|---|---|
+| **CORTE ↓** (`cut.down.*`) | Hit fija `score=0` y detiene la cadena (Crítico). |
+| **CORTE ↑** (`cut.up.*`) | Hit fija `score=90` y detiene la cadena (Muy confiable). |
+| **GATEWAY** (`gateway.*`) | Bonus alto (RPSF revisión, FinteChile, banco, AGF). Permite seguir acumulando. |
+| **ACUMULABLE** (`acc.*`) | Bonus modesto. Suma normal. Score se clampa a [0, 90]. |
+
+### Niveles
+
+| Nivel | Etiqueta | Rango |
+|:-:|---|:-:|
+| 5 | Muy confiable | **90** |
+| 4 | Confiable | 60 – 89 |
+| 3 | Neutro | 30 – 59 |
+| 2 | Riesgoso | 1 – 29 |
+| 1 | Crítico | **0** |
+
+### Tabla de evaluación por tipo de input
+
+| Etapa | Tool | URL / DOMAIN | RUT | NOMBRE |
+|---|---|---|---|---|
+| **1** | `check_blacklist` | hit en CMF Alertas / PhishTank / URLhaus → **CORTE ↓ = 0** | hit → **CORTE ↓ = 0** | hit → **CORTE ↓ = 0** |
+| **1** | `check_whitelist` | match RPSF autorizada → **CORTE ↑ = 90** · RPSF en revisión **+30** · FinteChile miembro **+20** | RUT exacto, mismos pesos | nombre, mismos pesos |
+| **2** | `analyze_domain` | dominio ≥ 2 años **+10** · ≥ 30 días **+5** · SSL CA reputada **+10** · sin redirects (≤3 hops) **+3** | ⊘ | ⊘ |
+| **2** | `check_dns_ownership` | WHOIS no anonimizado **+5** · registrante país CL **+5** | ⊘ | ⊘ |
+| **3** | `verify_chilean_entity` | ⊘ | SII activo **+15** · antigüedad ≥ 6 meses **+5** | ⊘ |
+| **3** | `check_regulator_status` | banco reconocido **+50** · AGF reconocida **+50** · giro consistente **+10** | mismos pesos | mismos pesos |
+| **4** | `analyze_business_model` | con `text`: info legal completa **+5** · sin promesas irreales **+3** · sin referidos **+3** · lenguaje técnico **+2** | con `text` | con `text` |
+| **4** | `get_applicable_regulation` | metadato (`kind=info`, no aporta) | metadato | metadato |
+| **5** | `get_official_complaint_channels` | siempre, no aporta score | siempre | siempre |
+
+> **Score máximo realista:** ~90 por clamp. Una entidad RPSF autorizada **corta directamente** a 90. Un banco reconocido (vía `bancosList`) + dominio antiguo + SSL OK + giro SII + WHOIS verificado fácilmente llega al techo sin estar en RPSF.
 
 **Principios del scoring:**
 
-- Cada regla tiene un fundamento documentado.
-- Cada señal aporta un peso fijo y conocido.
+- Cada regla tiene un fundamento documentado y un `kind` (`cut_down`/`cut_up`/`gateway`/`accumulable`).
+- Solo pesos positivos. Las "señales malas" del modelo previo (SSL inválido, dominio joven, SII suspendido) ya no restan: simplemente no disparan la regla positiva equivalente y se trazan como `kind: "info"` para auditoría.
 - Las reglas son auditables — pueden revisarse en una tabla.
 - El score nunca es opaco — siempre viene acompañado de las razones que lo componen.
 - **Cada regla aplicable cita ≥1 referencia normativa exacta** (Ley + artículo, NCG, Circular) del catálogo legal único en [`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts). Las citas son texto verbatim anclado a archivos en [`data/normativas/`](data/normativas/) — verificable y sin LLM en el path. Detalle: [docs/adr/ADR-002-legal-references-catalog.md](docs/adr/ADR-002-legal-references-catalog.md).
-- **Cada `Reason` tiene un `kind`**: `"signal"` (default, regla con `weight ≠ 0` que afecta el score) o `"info"` (`weight = 0`, describe qué se verificó cuando una fuente respondió OK sin matchear ninguna regla). Las info reasons se emiten para que el output no quede mudo cuando todo es "no se halló nada negativo". Cliente puede filtrar por `kind === "signal"` para UI compacta.
+- **Cada `Reason` tiene un `kind`**: `"signal"` (default, regla con `weight ≠ 0` que afecta el score) o `"info"` (`weight = 0`, describe qué se verificó cuando una fuente respondió OK sin matchear ninguna regla positiva). Las info reasons se emiten para que el output no quede mudo cuando todo es "no se halló nada negativo". Cliente puede filtrar por `kind === "signal"` para UI compacta.
 - El cliente puede ignorar el score y razonar sobre los hechos crudos directamente.
 
 > Las reglas específicas (señal → puntos → fundamento → referencia normativa) están documentadas en [SCORING.md](SCORING.md), generado automáticamente desde [`mcp-server/src/scoring/rules.ts`](mcp-server/src/scoring/rules.ts).

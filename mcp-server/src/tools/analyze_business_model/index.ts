@@ -91,17 +91,74 @@ export function createAnalyzeBusinessModelTool(
 
       const facts: Facts = {
         businessModel: {
-          ...(promesaIrreal ? { promesaRentabilidadIrreal: true } : {}),
-          ...(referidos ? { estructuraReferidos: true } : {}),
-          ...(vago.detected ? { lenguajeVago: true } : {}),
-          ...(ausencia.detected ? { ausenciaInfoLegal: true } : {}),
+          promesaRentabilidadIrreal: promesaIrreal,
+          estructuraReferidos: referidos,
+          lenguajeVago: vago.detected,
+          ausenciaInfoLegal: ausencia.detected,
         },
       };
       const scored: ScoreResult = score(facts);
 
-      // Info reasons: si los 4 detectores no flaguearon nada y/o BCE respondió.
+      // Info reasons: por cada flag detectado (señal antes negativa) se emite un
+      // info-reason para trazabilidad sin afectar score (modelo positivo+cortes).
       const infoReasons = [];
       const anyFlagFired = promesaIrreal || referidos || vago.detected || ausencia.detected;
+      if (promesaIrreal) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "promesa_rentabilidad_irreal",
+            "Promesa de rentabilidad incompatible con el mercado regulado",
+            {
+              fundamento:
+                "El texto contiene una promesa de rentabilidad sin cifra (aspiracional fuerte), con cifra que excede TMC, o en período diario/semanal incompatible con el mercado regulado.",
+              legalRefs: ["CL-LEY-18010", "CL-LEY-19496-art-28"],
+            },
+          ),
+        );
+      }
+      if (referidos) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "estructura_referidos",
+            "Estructura de ingresos basada en referidos / multinivel",
+            {
+              fundamento:
+                "El modelo de negocio compensa por reclutamiento; patrón estructural de esquemas piramidales.",
+              legalRefs: ["CL-LEY-19496-art-28"],
+            },
+          ),
+        );
+      }
+      if (vago.detected) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "lenguaje_vago",
+            "Lenguaje vago / urgencia artificial",
+            {
+              fundamento:
+                "Tokens de urgencia artificial detectados ('cupos limitados', 'oportunidad única', etc.); patrón de marketing fraudulento.",
+              legalRefs: ["CL-LEY-19496-art-28"],
+            },
+          ),
+        );
+      }
+      if (ausencia.detected) {
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "ausencia_info_legal",
+            "Ausencia de identificación formal completa (RUT/razón social/dirección)",
+            {
+              fundamento:
+                "Falta uno o más datos de identificación obligatoria según Ley 19.496 art. 17.",
+              legalRefs: ["CL-LEY-19496-art-17"],
+            },
+          ),
+        );
+      }
       if (!anyFlagFired) {
         infoReasons.push(
           infoReason(

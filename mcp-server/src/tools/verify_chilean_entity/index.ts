@@ -55,9 +55,41 @@ export function createVerifyChileanEntityTool(
 
       // Info reasons: por fuente OK que no contribuyó signal rule.
       const firedRules = new Set(scored.reasons.map((r) => r.ruleId));
-      const entityRuleFired = [...firedRules].some((id) => id.startsWith("entity."));
+      const entityRuleFired = [...firedRules].some(
+        (id) => id.startsWith("acc.entity.") || id.startsWith("cut.down.entity.") || id.startsWith("cut.up.entity.") || id.startsWith("gateway.entity."),
+      );
       const infoReasons = [];
-      if (siiResult.dataAvailable && !entityRuleFired) {
+      if (siiResult.dataAvailable && siiResult.estado === "suspendido") {
+        // SII suspendido ya no resta puntaje; se traza como info reason.
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "sii_suspendido",
+            "SII reporta inicio de actividades suspendido",
+            {
+              fundamento:
+                "El SII indica estado 'suspendido'. Bajo el modelo positivo, esta señal no dispara reglas acumulables de entity, pero queda registrada para auditoría.",
+              legalRefs: ["CL-CT-66"],
+            },
+          ),
+        );
+      }
+      if (siiResult.dataAvailable && siiResult.estado === "sin_inicio") {
+        // SII sin_inicio ya no resta puntaje; se traza como info reason.
+        infoReasons.push(
+          infoReason(
+            TOOL_NAME,
+            "sii_sin_inicio",
+            "SII reporta sin inicio de actividades para el RUT consultado",
+            {
+              fundamento:
+                "El SII no registra inicio de actividades vigente. Bajo el modelo positivo, esta señal no dispara reglas acumulables de entity, pero queda registrada para auditoría.",
+              legalRefs: ["CL-CT-66"],
+            },
+          ),
+        );
+      }
+      if (siiResult.dataAvailable && !entityRuleFired && siiResult.estado !== "suspendido" && siiResult.estado !== "sin_inicio") {
         infoReasons.push(
           infoReason(
             TOOL_NAME,
@@ -65,7 +97,7 @@ export function createVerifyChileanEntityTool(
             "SII respondió pero el estado no clasifica en reglas de scoring",
             {
               fundamento:
-                "Se consultó la situación tributaria del SII; el estado retornado no dispara reglas de entity (activo/suspendido/sin_inicio).",
+                "Se consultó la situación tributaria del SII; el estado retornado no dispara reglas de entity acumulables.",
               legalRefs: ["CL-CT-66"],
             },
           ),

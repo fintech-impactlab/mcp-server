@@ -4,9 +4,8 @@ import { legalCatalog } from "../../lib/legal-catalog.js";
 import { hashInput, logger } from "../../lib/logging.js";
 import type { ToolDefinition } from "../../server/registry.js";
 import { requiereCMF, type EntityType } from "../check_regulator_status/classifier.js";
-import { rules as scoringRules } from "../../scoring/rules.js";
 import { levelFor, type LevelId, type LevelLabel } from "../../scoring/levels.js";
-import type { ScoreProfile } from "../../scoring/engine.js";
+import { SCORE_CEILING, SCORE_FLOOR } from "../../scoring/rules.js";
 import { infoReason } from "../../scoring/info-reasons.js";
 import type { Situacion } from "../../constants/regulation-matrix.js";
 
@@ -21,8 +20,7 @@ import type { Output as RegulationOutput } from "../get_applicable_regulation/sc
 import type { Output as ChannelsOutput } from "../get_official_complaint_channels/schema.js";
 
 import {
-  shortCircuitAfterStage1,
-  shortCircuitAfterStage3,
+  cutFromReasons,
   verdictFromNivel,
   type Verdict,
 } from "./short-circuit.js";
@@ -89,16 +87,18 @@ export function createFullEvaluationTool(
       // ── Etapa 1 ─────────────────────────────────────────────────────────
       const e1 = await runEtapa1(input, deps);
       pushStage(breakdown, allReasons, allSources, "etapa_1", e1);
-      totalScore += e1.partialScore;
       toolsAttempted += e1.attempted;
       toolsSucceeded += e1.succeeded;
 
-      const sc1 = shortCircuitAfterStage1(e1.blacklist);
-      if (sc1 !== null) {
+      const cut1 = cutFromReasons(e1.reasons);
+      if (cut1 !== null) {
         stoppedAt = "etapa_1";
-        shortCircuitReason = sc1.reason;
-        nivelOverride = sc1.nivel;
-        etiquetaOverride = sc1.etiqueta;
+        shortCircuitReason = cut1.reason;
+        nivelOverride = cut1.nivel;
+        etiquetaOverride = cut1.etiqueta;
+        totalScore = cut1.nivel === 1 ? SCORE_FLOOR : SCORE_CEILING;
+      } else {
+        totalScore += e1.partialScore;
       }
 
       // ── Etapa 2 ─────────────────────────────────────────────────────────
@@ -116,16 +116,18 @@ export function createFullEvaluationTool(
       if (stoppedAt === null) {
         stage3 = await runEtapa3(input, inputType, deps);
         pushStage(breakdown, allReasons, allSources, "etapa_3", stage3);
-        totalScore += stage3.partialScore;
         toolsAttempted += stage3.attempted;
         toolsSucceeded += stage3.succeeded;
 
-        const sc3 = shortCircuitAfterStage3(stage3.regulator, stage2?.domain ?? null);
-        if (sc3 !== null) {
+        const cut3 = cutFromReasons(stage3.reasons);
+        if (cut3 !== null) {
           stoppedAt = "etapa_3";
-          shortCircuitReason = sc3.reason;
-          nivelOverride = sc3.nivel;
-          etiquetaOverride = sc3.etiqueta;
+          shortCircuitReason = cut3.reason;
+          nivelOverride = cut3.nivel;
+          etiquetaOverride = cut3.etiqueta;
+          totalScore = cut3.nivel === 1 ? SCORE_FLOOR : SCORE_CEILING;
+        } else {
+          totalScore += stage3.partialScore;
         }
       }
 
@@ -146,23 +148,21 @@ export function createFullEvaluationTool(
       toolsAttempted += stage5.attempted;
       toolsSucceeded += stage5.succeeded;
 
-      // Perfil: derivado del tipoEntidad clasificado en Etapa 3. Default
-      // conservador `cmf` cuando la etapa cayó (detectedTipo === null).
+      // Metadato regulatorio (info-only). Ya no afecta el score, solo informa
+      // al cliente si la entidad debería estar bajo perímetro CMF.
       const requiere = detectedTipo === null ? true : requiereCMF(detectedTipo);
-      const escala: ScoreProfile = requiere ? "cmf" : "no_cmf";
+      const escala: "cmf" | "no_cmf" = requiere ? "cmf" : "no_cmf";
 
-      // Cuando el perfil es no_cmf, las reglas CMF-only no aportan al score.
-      // Filtramos las reasons que pertenezcan a esas reglas y reajustamos el
-      // total. Las reasons siguen visibles al cliente como traza, pero su
-      // weight se descuenta del score consolidado.
-      const adjustedScore = adjustScoreForProfile(totalScore, allReasons, escala);
+      const finalScore = stoppedAt === null
+        ? Math.max(SCORE_FLOOR, Math.min(SCORE_CEILING, totalScore))
+        : totalScore;
 
       const profileInfoReason = infoReason(
         TOOL_NAME,
         "perfil",
         detectedTipo === null
-          ? "Perfil CMF aplicado por default conservador (no se pudo clasificar la entidad)."
-          : `Perfil ${escala === "cmf" ? "CMF" : "No-CMF"} aplicado: tipoEntidad=${detectedTipo}.`,
+          ? "No se pudo clasificar la entidad; metadato regulatorio aplicado por default."
+          : `Metadato regulatorio: tipoEntidad=${detectedTipo}, requiereCMF=${requiere}.`,
       );
       allReasons.push(profileInfoReason);
 
@@ -172,7 +172,7 @@ export function createFullEvaluationTool(
         nivel = nivelOverride;
         etiqueta = etiquetaOverride;
       } else {
-        const entry = levelFor(adjustedScore, escala);
+        const entry = levelFor(finalScore);
         nivel = entry.id;
         etiqueta = entry.label;
       }
@@ -191,13 +191,13 @@ export function createFullEvaluationTool(
         escala,
         requiereCMF: requiere,
         confianza,
-        totalScore: adjustedScore,
+        totalScore: finalScore,
         toolsAttempted,
         toolsSucceeded,
       });
 
       return {
-        totalScore: adjustedScore,
+        totalScore: finalScore,
         verdict,
         requiereCMF: requiere,
         escala,
@@ -217,25 +217,6 @@ export function createFullEvaluationTool(
       };
     },
   };
-}
-
-const RULE_APPLIES_TO_NON_CMF: ReadonlyMap<string, boolean> = new Map(
-  scoringRules.map((r) => [r.id, r.appliesToNonCmf]),
-);
-
-function adjustScoreForProfile(
-  total: number,
-  reasons: ReadonlyArray<Reason>,
-  profile: ScoreProfile,
-): number {
-  if (profile === "cmf") return total;
-  let adjusted = total;
-  for (const r of reasons) {
-    if (r.kind === "info") continue;
-    const applies = RULE_APPLIES_TO_NON_CMF.get(r.ruleId);
-    if (applies === false) adjusted -= r.weight;
-  }
-  return adjusted;
 }
 
 /**

@@ -24,7 +24,7 @@ function captureLogs(): { events: CapturedEvent[]; restore: () => void } {
 }
 
 describe("analyze_business_model — happy path: texto profesional sin flags", () => {
-  it("retorna score 0, sin reasons, disclaimer presente", async () => {
+  it("sin flags → 4 acc.bm.* (5+3+3+2=13) + info detectors_no_flag", async () => {
     const tool = createAnalyzeBusinessModelTool();
     const log = captureLogs();
     let response;
@@ -38,10 +38,15 @@ describe("analyze_business_model — happy path: texto profesional sin flags", (
     }
     const parsed = OutputSchema.safeParse(response);
     assert.equal(parsed.success, true, parsed.success ? "" : JSON.stringify(parsed.error.issues));
-    assert.equal(response.score, 0);
-    // Política nueva: sin flags → 1 info reason "detectors_no_flag".
-    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
-    assert.equal(signalReasons.length, 0);
+    // Modelo positivo+cortes: sin flags → 4 acc.bm.* (5+3+3+2=13).
+    assert.equal(response.score, 13);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId).sort();
+    assert.deepEqual(signalIds, [
+      "acc.bm.info_legal_completa",
+      "acc.bm.lenguaje_tecnico",
+      "acc.bm.sin_promesas_irreales",
+      "acc.bm.sin_referidos",
+    ]);
     assert.ok(
       response.reasons.some((r) => r.ruleId === "info.analyze_business_model.detectors_no_flag"),
     );
@@ -52,7 +57,7 @@ describe("analyze_business_model — happy path: texto profesional sin flags", (
 });
 
 describe("analyze_business_model — promesa de rentabilidad irreal vs TMC", () => {
-  it("'10% mensual' (120% anualizado) > TMC 25% → excedeTMC + regla irreal (-30)", async () => {
+  it("'10% mensual' (120% anualizado) > TMC 25% → excedeTMC + info-reason (sin sumar)", async () => {
     const tool = createAnalyzeBusinessModelTool({
       getRates: async () => ({ tasaMaximaConvencionalPct: 25 }),
     });
@@ -64,11 +69,15 @@ describe("analyze_business_model — promesa de rentabilidad irreal vs TMC", () 
     assert.equal(response.flags.promesaRentabilidad.period, "monthly");
     assert.equal(response.flags.promesaRentabilidad.annualizedPct, 120);
     assert.equal(response.flags.promesaRentabilidad.excedeTMC, true);
-    assert.equal(response.score, -30);
-    assert.equal(response.reasons[0]?.ruleId, "bm.promesa_rentabilidad_irreal");
+    // Modelo positivo+cortes: la flag suprime acc.bm.sin_promesas_irreales (+3),
+    // las otras 3 acc siguen sumando: 5+3+2 = 10. Se emite info-reason por la flag.
+    assert.equal(response.score, 10);
+    const ids = response.reasons.map((r) => r.ruleId);
+    assert.ok(ids.includes("info.analyze_business_model.promesa_rentabilidad_irreal"));
+    assert.ok(!ids.includes("acc.bm.sin_promesas_irreales"));
   });
 
-  it("'10% mensual' sin rates disponibles → igual dispara la regla por período mensual con cifra alta? NO, queda en 0 si no hay TMC", async () => {
+  it("'10% mensual' sin rates disponibles → no excedeTMC; mensual con cifra no es daily/weekly", async () => {
     const tool = createAnalyzeBusinessModelTool({
       getRates: async () => null,
     });
@@ -78,32 +87,39 @@ describe("analyze_business_model — promesa de rentabilidad irreal vs TMC", () 
     });
     // Sin TMC no podemos afirmar excedeTMC, y mensual con cifra no entra en el atajo daily/weekly
     assert.equal(response.flags.promesaRentabilidad.excedeTMC, false);
-    assert.equal(response.score, 0);
+    // No flag → 4 acc.bm.* fire (13).
+    assert.equal(response.score, 13);
   });
 
-  it("'5% diario' dispara la regla aunque no haya TMC (período diario es estructuralmente irreal)", async () => {
+  it("'5% diario' dispara info-reason (período diario estructuralmente irreal)", async () => {
     const tool = createAnalyzeBusinessModelTool();
     const response = await tool.handler({
       text:
         "FINTECH PAGOS SPA, RUT 76.123.456-7, Av. Apoquindo 100. Hasta 5% diario en cripto.",
     });
     assert.equal(response.flags.promesaRentabilidad.period, "daily");
-    assert.equal(response.score, -30);
-    assert.equal(response.reasons[0]?.ruleId, "bm.promesa_rentabilidad_irreal");
+    // 5+3+2 = 10 (sin acc.bm.sin_promesas_irreales).
+    assert.equal(response.score, 10);
+    const ids = response.reasons.map((r) => r.ruleId);
+    assert.ok(ids.includes("info.analyze_business_model.promesa_rentabilidad_irreal"));
+    assert.ok(!ids.includes("acc.bm.sin_promesas_irreales"));
   });
 
-  it("'rentabilidad garantizada sin riesgo' (aspiracional sin cifra) dispara la regla", async () => {
+  it("'rentabilidad garantizada sin riesgo' (aspiracional sin cifra) dispara info-reason", async () => {
     const tool = createAnalyzeBusinessModelTool();
     const response = await tool.handler({
       text:
         "FINTECH PAGOS SPA, RUT 76.123.456-7, Av. X 1. Rentabilidad garantizada y sin riesgo.",
     });
-    assert.equal(response.score, -30);
+    // 5+3+2 = 10 (sin acc.bm.sin_promesas_irreales).
+    assert.equal(response.score, 10);
+    const ids = response.reasons.map((r) => r.ruleId);
+    assert.ok(ids.includes("info.analyze_business_model.promesa_rentabilidad_irreal"));
   });
 });
 
 describe("analyze_business_model — combinación de flags", () => {
-  it("texto con referidos + lenguaje vago + ausencia info legal → score acumulado", async () => {
+  it("texto con referidos + lenguaje vago + ausencia info legal → 3 info-reasons + 1 acc (sin promesa)", async () => {
     const tool = createAnalyzeBusinessModelTool();
     const response = await tool.handler({
       text:
@@ -113,11 +129,16 @@ describe("analyze_business_model — combinación de flags", () => {
     assert.equal(response.flags.lenguajeVago.detected, true);
     assert.equal(response.flags.ausenciaInfoLegal.detected, true);
     const ids = response.reasons.map((r) => r.ruleId).sort();
-    assert.ok(ids.includes("bm.estructura_referidos"));
-    assert.ok(ids.includes("bm.lenguaje_vago"));
-    assert.ok(ids.includes("bm.ausencia_info_legal"));
-    // -25 + -10 + -15 = -50
-    assert.equal(response.score, -50);
+    // Modelo positivo+cortes: las flags suprimen sus acc respectivas; sólo
+    // queda acc.bm.sin_promesas_irreales (+3). Las flags se reportan como info.
+    assert.ok(ids.includes("info.analyze_business_model.estructura_referidos"));
+    assert.ok(ids.includes("info.analyze_business_model.lenguaje_vago"));
+    assert.ok(ids.includes("info.analyze_business_model.ausencia_info_legal"));
+    assert.ok(ids.includes("acc.bm.sin_promesas_irreales"));
+    assert.ok(!ids.includes("acc.bm.sin_referidos"));
+    assert.ok(!ids.includes("acc.bm.lenguaje_tecnico"));
+    assert.ok(!ids.includes("acc.bm.info_legal_completa"));
+    assert.equal(response.score, 3);
   });
 });
 

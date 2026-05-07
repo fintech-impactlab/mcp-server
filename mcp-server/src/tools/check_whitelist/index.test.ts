@@ -81,8 +81,12 @@ describe("check_whitelist handler — happy path", () => {
     assert.equal(response.inWhitelist, true);
     assert.equal(response.entries.length, 1);
     assert.equal(response.entries[0]?.estado, "autorizada");
-    assert.equal(response.score, 50);
-    assert.equal(response.reasons[0]?.ruleId, "whitelist.rpsf_autorizada");
+    // rpsf_autorizada ahora es cut_up: score=90.
+    assert.equal(response.score, 90);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 1);
+    assert.equal(signalReasons[0]?.ruleId, "cut.up.whitelist.rpsf_autorizada");
+    assert.equal(signalReasons[0]?.weight, 90);
   });
 
   it("matchea por nombre case-insensitive", async () => {
@@ -136,7 +140,7 @@ describe("check_whitelist handler — happy path", () => {
     assert.equal(response.inWhitelist, false);
   });
 
-  it("estado 'en_revision' suma +10", async () => {
+  it("estado 'en_revision' es gateway +30", async () => {
     const tool = createCheckWhitelistTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -146,11 +150,13 @@ describe("check_whitelist handler — happy path", () => {
       loadFinteChileMembers: async () => [],
     });
     const response = await tool.handler({ input: "76.123.456-7" });
-    assert.equal(response.score, 10);
-    assert.equal(response.reasons[0]?.ruleId, "whitelist.rpsf_en_revision");
+    assert.equal(response.score, 30);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons[0]?.ruleId, "gateway.whitelist.rpsf_en_revision");
+    assert.equal(signalReasons[0]?.weight, 30);
   });
 
-  it("autorizada gana sobre en_revision si ambas matchean", async () => {
+  it("autorizada gana sobre en_revision si ambas matchean (cut_up corta)", async () => {
     const tool = createCheckWhitelistTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -161,13 +167,28 @@ describe("check_whitelist handler — happy path", () => {
       loadFinteChileMembers: async () => [],
     });
     const response = await tool.handler({ input: "76.123.456-7" });
-    assert.equal(response.score, 50);
+    assert.equal(response.score, 90);
     const signalReasons = response.reasons.filter((r) => r.kind !== "info");
     assert.equal(signalReasons.length, 1);
-    assert.equal(signalReasons[0]?.ruleId, "whitelist.rpsf_autorizada");
+    assert.equal(signalReasons[0]?.ruleId, "cut.up.whitelist.rpsf_autorizada");
   });
 
-  it("agrega +15 si la entidad es miembro de FinteChile", async () => {
+  it("FinteChile sin RPSF autorizada suma gateway +20", async () => {
+    const tool = createCheckWhitelistTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [fintechileMember()],
+    });
+    const response = await tool.handler({ input: "FINTECH PAGOS SPA" });
+    assert.equal(response.score, 20);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    const ruleIds = signalReasons.map((r) => r.ruleId).sort();
+    assert.deepEqual(ruleIds, ["gateway.whitelist.fintechile_miembro"]);
+    assert.equal(response.entries.length, 1);
+  });
+
+  it("RPSF autorizada + FinteChile: cut_up corta a 90 (gateway no se suma)", async () => {
     const tool = createCheckWhitelistTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -175,9 +196,12 @@ describe("check_whitelist handler — happy path", () => {
       loadFinteChileMembers: async () => [fintechileMember()],
     });
     const response = await tool.handler({ input: "FINTECH PAGOS SPA" });
-    assert.equal(response.score, 65); // +50 + +15
-    const ruleIds = response.reasons.map((r) => r.ruleId).sort();
-    assert.deepEqual(ruleIds, ["whitelist.fintechile_miembro", "whitelist.rpsf_autorizada"]);
+    // cut_up bloquea acumulación: solo la signal reason del corte.
+    assert.equal(response.score, 90);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons.length, 1);
+    assert.equal(signalReasons[0]?.ruleId, "cut.up.whitelist.rpsf_autorizada");
+    // Las entries de output siguen mostrando ambas fuentes para auditoría.
     assert.equal(response.entries.length, 2);
   });
 

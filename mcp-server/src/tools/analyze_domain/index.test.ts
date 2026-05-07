@@ -45,7 +45,7 @@ describe("extractHost / ageDaysFrom", () => {
 });
 
 describe("analyze_domain handler — happy path", () => {
-  it("retorna OutputSchema-valid con cert válido + dominio antiguo + sin redirects", async () => {
+  it("cert válido + dominio antiguo + sin redirects → 10+10+3=23", async () => {
     const tool = createAnalyzeDomainTool({
       whoisConfig: {
         transport: async () => "Creation date: 2010-04-15 11:23:40 CLT\nRegistrar: NIC Chile\n",
@@ -80,19 +80,18 @@ describe("analyze_domain handler — happy path", () => {
     assert.equal(response.sslStatus, "valid");
     assert.equal(response.sslIssuer, "DigiCert Inc");
     assert.equal(response.redirects.length, 0);
-    assert.equal(response.score, 0);
-    // Política nueva: 3 fuentes OK sin signal rule → 3 info reasons.
-    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
-    assert.equal(signalReasons.length, 0);
-    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
-    assert.deepEqual(infoIds.sort(), [
-      "info.analyze_domain.redirects_clean",
-      "info.analyze_domain.tls_valid",
-      "info.analyze_domain.whois_verified",
+    // Modelo positivo+cortes: acc.domain.age_ge_2y (+10) + acc.domain.ssl_valid_reputable (+10)
+    // + acc.domain.no_redirects (+3) = 23.
+    assert.equal(response.score, 23);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId).sort();
+    assert.deepEqual(signalIds, [
+      "acc.domain.age_ge_2y",
+      "acc.domain.no_redirects",
+      "acc.domain.ssl_valid_reputable",
     ]);
   });
 
-  it("dispara young_lt7d y ssl_lets_encrypt_recent (combinado)", async () => {
+  it("dominio joven + Let's Encrypt reciente → score=0; emite info-reasons", async () => {
     const tool = createAnalyzeDomainTool({
       whoisConfig: {
         transport: async () => "Creation Date: 2026-05-04T00:00:00Z\nRegistrar: Namecheap\n",
@@ -114,12 +113,19 @@ describe("analyze_domain handler — happy path", () => {
     });
     const response = await tool.handler({ url: "https://scam.example/" });
     assert.equal(response.domainAgeDays, 2);
-    assert.equal(response.score, -50); // -40 (young_lt7d) + -10 (ssl_lets_encrypt_recent)
+    // Modelo positivo+cortes: las antiguas reglas negativas ya no existen.
+    // Dominio <30d → no acc.domain.age_*. SSL válido con Let's Encrypt
+    // (en lista reputable) sí dispara acc.domain.ssl_valid_reputable (+10).
+    // Sin redirects → acc.domain.no_redirects (+3). Total = 13.
+    assert.equal(response.score, 13);
     const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId).sort();
-    assert.deepEqual(signalIds, ["domain.ssl_lets_encrypt_recent", "domain.young_lt7d"]);
+    assert.deepEqual(signalIds, ["acc.domain.no_redirects", "acc.domain.ssl_valid_reputable"]);
+    // Info-reason por dominio joven (señal antes negativa, ahora trazada como info).
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.ok(infoIds.includes("info.analyze_domain.domain_young"));
   });
 
-  it("dispara too_many_redirects cuando hops >= 4", async () => {
+  it("4 hops de redirección + ssl missing → score=0; emite info too_many_redirects + tls_issue", async () => {
     const chain: Record<string, { status: number; loc?: string }> = {
       "https://a.test/": { status: 301, loc: "https://b.test/" },
       "https://b.test/": { status: 301, loc: "https://c.test/" },
@@ -150,9 +156,13 @@ describe("analyze_domain handler — happy path", () => {
     });
     const response = await tool.handler({ url: "https://a.test/" });
     assert.equal(response.redirects.length, 4);
+    // Modelo positivo+cortes: 4 hops > 3 (no_redirects no fire);
+    // SSL missing (no ssl_valid_reputable). Sólo acc.domain.age_ge_2y (+10).
+    assert.equal(response.score, 10);
     const ids = response.reasons.map((r) => r.ruleId);
-    assert.ok(ids.includes("domain.too_many_redirects"));
-    assert.ok(ids.includes("domain.ssl_missing"));
+    assert.ok(ids.includes("info.analyze_domain.too_many_redirects"));
+    assert.ok(ids.includes("info.analyze_domain.tls_issue"));
+    assert.ok(ids.includes("acc.domain.age_ge_2y"));
   });
 });
 

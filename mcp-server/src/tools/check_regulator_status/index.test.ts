@@ -73,16 +73,20 @@ describe("check_regulator_status — fintech autorizada con giro consistente", (
     assert.equal(response.numeroRegistro, "RPSF-0042");
     assert.equal(response.membresiaFinteChile, true);
     assert.equal(response.giroConsistente, true);
-    assert.equal(response.score, 25);
-    assert.equal(response.reasons[0]?.ruleId, "regulator.rpsf_autorizada_y_giro_consistente");
+    // En modelo positivo+cortes: este handler solo setea regulator facts.
+    // El cut_up.whitelist.rpsf_autorizada se evalúa dentro de check_whitelist
+    // (otro tool). Aquí solo dispara acc.regulator.giro_consistente (+10).
+    assert.equal(response.score, 10);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons[0]?.ruleId, "acc.regulator.giro_consistente");
     const normIds = response.normativasAplicables.map((n) => n.id);
     assert.ok(normIds.includes("ley-21521"));
     assert.ok(normIds.includes("ncg-504"));
   });
 });
 
-describe("check_regulator_status — fintech sin RPSF dispara regla -30", () => {
-  it("nombre incluye 'fintech' + giros 6491 + RPSF no_registrada → fintech_no_registrada (-30)", async () => {
+describe("check_regulator_status — fintech sin RPSF (modelo positivo no penaliza)", () => {
+  it("fintech detectada como tipo pero sin estar en RPSF: score=0 (regla negativa eliminada)", async () => {
     const tool = createCheckRegulatorStatusTool({
       cache: createCache({ store: createInMemoryStore() }),
       storage: stubStorage,
@@ -95,8 +99,11 @@ describe("check_regulator_status — fintech sin RPSF dispara regla -30", () => 
     const response = await tool.handler({ rutOrName: "Fintech Pagos Sin Registro" });
     assert.equal(response.estadoRPSF, "no_registrada");
     assert.equal(response.tipoEntidad, "fintech");
-    assert.equal(response.score, -30);
-    assert.equal(response.reasons[0]?.ruleId, "regulator.fintech_no_registrada");
+    // En el modelo positivo, "ser fintech sin estar en RPSF" ya no resta;
+    // pero el giro SII consistente con la categoría sigue aportando +10.
+    assert.equal(response.score, 10);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons[0]?.ruleId, "acc.regulator.giro_consistente");
   });
 
   it("clasifica como fintech cuando RPSF tiene tipo (incluso si estado=en_revision)", async () => {
@@ -173,6 +180,37 @@ describe("check_regulator_status — banco vía lista oficial", () => {
     });
     const response = await tool.handler({ rutOrName: "mercadolibre.cl" });
     assert.equal(response.tipoEntidad, "no_fiscalizada");
+  });
+});
+
+describe("check_regulator_status — gateways banco/AGF reconocidos", () => {
+  it("dominio bancofalabella.cl dispara gateway.regulator.banco_reconocido (+50)", async () => {
+    const tool = createCheckRegulatorStatusTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [],
+      loadSiiGiros: async () => [],
+    });
+    const response = await tool.handler({ rutOrName: "https://www.bancofalabella.cl/" });
+    assert.equal(response.tipoEntidad, "banco");
+    assert.equal(response.score, 50);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons[0]?.ruleId, "gateway.regulator.banco_reconocido");
+  });
+
+  it("dominio fintual.cl dispara gateway.regulator.agf_reconocida (+50)", async () => {
+    const tool = createCheckRegulatorStatusTool({
+      cache: createCache({ store: createInMemoryStore() }),
+      storage: stubStorage,
+      loadRpsfEntries: async () => [],
+      loadFinteChileMembers: async () => [],
+      loadSiiGiros: async () => [],
+    });
+    const response = await tool.handler({ rutOrName: "https://fintual.cl/" });
+    assert.equal(response.score, 50);
+    const signalReasons = response.reasons.filter((r) => r.kind !== "info");
+    assert.equal(signalReasons[0]?.ruleId, "gateway.regulator.agf_reconocida");
   });
 });
 

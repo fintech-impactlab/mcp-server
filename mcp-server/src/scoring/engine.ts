@@ -1,10 +1,16 @@
-// Motor de scoring puro y determinístico.
+// Motor de scoring puro y determinístico (modelo positivo + cortes).
 // Reglas: sin LLM, sin Math.random, sin Date.now (excepto en facts derivados
 // del input que se pasan al engine ya calculados). Mismo input → mismo output.
 
-import { rules as defaultRules, type Facts, type Rule } from "./rules.js";
+import {
+  rules as defaultRules,
+  SCORE_CEILING,
+  SCORE_FLOOR,
+  type Facts,
+  type Rule,
+} from "./rules.js";
 
-export type ScoreProfile = "cmf" | "no_cmf";
+export type Cut = "down" | "up" | null;
 
 export interface ScoreReason {
   ruleId: string;
@@ -17,43 +23,83 @@ export interface ScoreReason {
 export interface ScoreResult {
   score: number;
   reasons: ReadonlyArray<ScoreReason>;
+  cut: Cut;
 }
 
 export interface ScoreOptions {
-  /**
-   * Perfil de scoring. `"cmf"` aplica las 28 reglas; `"no_cmf"` ignora las
-   * 11 reglas marcadas con `appliesToNonCmf=false` (listados CMF, RPSF,
-   * promesas de rentabilidad — no aplican a sitios fuera del perímetro
-   * regulatorio CMF). Default: `"cmf"`.
-   */
-  profile?: ScoreProfile;
-  /**
-   * Conjunto de reglas a evaluar. Default: catálogo completo de `rules.ts`.
-   * Útil para tests con reglas inyectadas.
-   */
+  /** Conjunto de reglas a evaluar. Default: catálogo completo. */
   rules?: ReadonlyArray<Rule>;
 }
 
+function toReason(rule: Rule): ScoreReason {
+  const reason: ScoreReason = {
+    ruleId: rule.id,
+    weight: rule.weight,
+    message: rule.reason,
+    fundamento: rule.fundamento,
+  };
+  if (rule.legalRefs !== undefined) {
+    reason.legalRefs = [...rule.legalRefs];
+  }
+  return reason;
+}
+
+/**
+ * Evalúa los facts contra el catálogo de reglas. Orden de prioridad:
+ *   1. cut_down — primer hit fija score=0 y retorna inmediatamente.
+ *   2. cut_up   — primer hit fija score=SCORE_CEILING y retorna.
+ *   3. gateway + accumulable — suma de pesos, clamp [SCORE_FLOOR, SCORE_CEILING].
+ */
 export function score(facts: Facts, options: ScoreOptions = {}): ScoreResult {
-  const profile: ScoreProfile = options.profile ?? "cmf";
   const ruleSet = options.rules ?? defaultRules;
+
+  // 1. Cortes hacia abajo (prioridad máxima).
+  for (const rule of ruleSet) {
+    if (rule.kind === "cut_down" && rule.predicate(facts)) {
+      return {
+        score: SCORE_FLOOR,
+        reasons: [toReason(rule)],
+        cut: "down",
+      };
+    }
+  }
+
+  // 2. Cortes hacia arriba.
+  for (const rule of ruleSet) {
+    if (rule.kind === "cut_up" && rule.predicate(facts)) {
+      return {
+        score: SCORE_CEILING,
+        reasons: [toReason(rule)],
+        cut: "up",
+      };
+    }
+  }
+
+  // 3. Acumulación (gateways + accumulables).
   const reasons: ScoreReason[] = [];
   let total = 0;
   for (const rule of ruleSet) {
-    if (profile === "no_cmf" && rule.appliesToNonCmf === false) continue;
+    if (rule.kind !== "gateway" && rule.kind !== "accumulable") continue;
     if (rule.predicate(facts)) {
       total += rule.weight;
-      const reason: ScoreReason = {
-        ruleId: rule.id,
-        weight: rule.weight,
-        message: rule.reason,
-        fundamento: rule.fundamento,
-      };
-      if (rule.legalRefs !== undefined) {
-        reason.legalRefs = [...rule.legalRefs];
-      }
-      reasons.push(reason);
+      reasons.push(toReason(rule));
     }
   }
-  return { score: total, reasons };
+  const clamped = Math.max(SCORE_FLOOR, Math.min(SCORE_CEILING, total));
+  return { score: clamped, reasons, cut: null };
 }
+
+/** Detecta si una lista de reasons contiene un corte (por convención de ruleId). */
+export function detectCutInReasons(
+  reasons: ReadonlyArray<{ ruleId: string }>,
+): Cut {
+  for (const r of reasons) {
+    if (r.ruleId.startsWith("cut.down.")) return "down";
+  }
+  for (const r of reasons) {
+    if (r.ruleId.startsWith("cut.up.")) return "up";
+  }
+  return null;
+}
+
+export { SCORE_CEILING, SCORE_FLOOR } from "./rules.js";

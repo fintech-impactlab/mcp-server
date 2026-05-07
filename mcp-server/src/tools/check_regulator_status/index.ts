@@ -41,6 +41,8 @@ export interface CheckRegulatorStatusDeps {
   loadFinteChileMembers?: () => Promise<ReadonlyArray<fintechile.FinteChileMember>>;
   /** Para tests: lista estática de bancos. En producción se carga del File Share. */
   bancosList?: ReadonlyArray<string>;
+  /** Para tests: lista estática de AGFs reconocidas. */
+  agfList?: ReadonlyArray<string>;
   /** Para tests: lookup de giros SII por nombre/RUT. */
   loadSiiGiros?: (query: string) => Promise<ReadonlyArray<SiiGiro>>;
   now?: () => number;
@@ -57,6 +59,9 @@ export function createCheckRegulatorStatusTool(
     deps.loadFinteChileMembers ?? (() => fintechile.fetchFinteChileMembers(deps.fintechileConfig));
   const loadSiiGiros = deps.loadSiiGiros ?? (async () => []);
   const bancosListNorm = (deps.bancosList ?? DEFAULT_BANCOS)
+    .map((s) => normalizeForMatch(s))
+    .filter((s) => s.length >= MIN_NORMALIZED_LENGTH);
+  const agfListNorm = (deps.agfList ?? DEFAULT_AGF)
     .map((s) => normalizeForMatch(s))
     .filter((s) => s.length >= MIN_NORMALIZED_LENGTH);
 
@@ -85,6 +90,9 @@ export function createCheckRegulatorStatusTool(
       const enListaBancos =
         queryNorm.length >= MIN_NORMALIZED_LENGTH &&
         bancosListNorm.some((b) => queryNorm.includes(b));
+      const enListaAgf =
+        queryNorm.length >= MIN_NORMALIZED_LENGTH &&
+        agfListNorm.some((b) => queryNorm.includes(b));
 
       const tipoEntidad: EntityType = classifyEntity({
         nombre: query,
@@ -109,6 +117,8 @@ export function createCheckRegulatorStatusTool(
           tipoEntidad,
           estadoRPSF,
           giroConsistente,
+          enListaBancos,
+          enListaAgf,
         },
       };
       const scored: ScoreResult = score(facts);
@@ -202,6 +212,24 @@ export function createCheckRegulatorStatusTool(
     },
   };
 }
+
+/**
+ * Lista hardcoded mínima de Administradoras Generales de Fondos (AGF) y
+ * gestores de inversión chilenos fiscalizados por la CMF fuera del RPSF.
+ * Tokens cortos para tolerar tanto razón social como dominio.
+ */
+const DEFAULT_AGF: ReadonlyArray<string> = [
+  "fintual",
+  "banchile",
+  "btg pactual",
+  "itau",
+  "bice",
+  "compass",
+  "nevasa",
+  "tanner",
+  "scotia",
+  "sura",
+];
 
 const DEFAULT_BANCOS: ReadonlyArray<string> = [
   "banco de chile",

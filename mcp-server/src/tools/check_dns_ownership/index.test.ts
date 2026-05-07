@@ -49,7 +49,7 @@ describe("normalizeDomain / isClDomain", () => {
 });
 
 describe("check_dns_ownership handler — .cl via RDAP", () => {
-  it("retorna OutputSchema-valid + dispara dns.registrant_pais_chile (+5)", async () => {
+  it("registrante CL no anónimo → acc.dns.registrant_no_anonimo + acc.dns.registrant_pais_chile (5+5=10)", async () => {
     const tool = createCheckDnsOwnershipTool({
       rdapConfig: {
         http: async () => ({ statusCode: 200, bodyText: async () => RDAP_FOUND }),
@@ -69,11 +69,13 @@ describe("check_dns_ownership handler — .cl via RDAP", () => {
     assert.equal(response.registrant, "Empresa Ejemplo S.A.");
     assert.equal(response.registrantCountry, "CL");
     assert.equal(response.registrationDate, "2010-04-15");
-    assert.equal(response.score, 5);
-    assert.equal(response.reasons[0]?.ruleId, "dns.registrant_pais_chile");
+    // Modelo positivo+cortes: registrante visible (+5) + país=CL (+5) = 10.
+    assert.equal(response.score, 10);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId).sort();
+    assert.deepEqual(signalIds, ["acc.dns.registrant_no_anonimo", "acc.dns.registrant_pais_chile"]);
   });
 
-  it("dispara dns.registrant_anonimo (-15) cuando RDAP marca redacted", async () => {
+  it("registrante REDACTED → score=0 + info-reason (regla negativa eliminada)", async () => {
     const REDACTED = JSON.stringify({
       objectClassName: "domain",
       events: [{ eventAction: "registration", eventDate: "2026-04-30T00:00:00Z" }],
@@ -93,13 +95,18 @@ describe("check_dns_ownership handler — .cl via RDAP", () => {
     });
     const response = await tool.handler({ domain: "anonimo.cl" });
     assert.equal(response.adminAnonymized, true);
-    assert.equal(response.score, -15);
-    assert.equal(response.reasons[0]?.ruleId, "dns.registrant_anonimo");
+    // Anonimizado: acc.dns.registrant_no_anonimo NO suma. Sin país CL declarado → 0.
+    assert.equal(response.score, 0);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId);
+    assert.ok(!signalIds.includes("acc.dns.registrant_no_anonimo"));
+    // Info-reason por anonimato (señal antes negativa, ahora trazada como info).
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.ok(infoIds.includes("info.check_dns_ownership.registrant_anonimo"));
   });
 });
 
 describe("check_dns_ownership handler — internacional via WHOIS", () => {
-  it("usa WHOIS para .com y extrae registrantCountry", async () => {
+  it("WHOIS .com con país US no anónimo → acc.dns.registrant_no_anonimo (+5)", async () => {
     const tool = createCheckDnsOwnershipTool({
       whoisConfig: {
         transport: async () =>
@@ -111,10 +118,13 @@ describe("check_dns_ownership handler — internacional via WHOIS", () => {
     assert.equal(response.registrant, "Empresa Inter");
     assert.equal(response.registrantCountry, "US");
     assert.equal(response.registrationDate, "2020-01-01");
-    assert.equal(response.score, 0);
+    // País US (no CL) → no suma país. Registrante visible → +5.
+    assert.equal(response.score, 5);
+    const signalIds = response.reasons.filter((r) => r.kind !== "info").map((r) => r.ruleId);
+    assert.ok(signalIds.includes("acc.dns.registrant_no_anonimo"));
   });
 
-  it("dispara dns.registrant_anonimo cuando WHOIS está REDACTED", async () => {
+  it("WHOIS REDACTED → score=0 + info-reason (regla negativa eliminada)", async () => {
     const tool = createCheckDnsOwnershipTool({
       whoisConfig: {
         transport: async () =>
@@ -123,7 +133,9 @@ describe("check_dns_ownership handler — internacional via WHOIS", () => {
     });
     const response = await tool.handler({ domain: "scam.com" });
     assert.equal(response.adminAnonymized, true);
-    assert.equal(response.score, -15);
+    assert.equal(response.score, 0);
+    const infoIds = response.reasons.filter((r) => r.kind === "info").map((r) => r.ruleId);
+    assert.ok(infoIds.includes("info.check_dns_ownership.registrant_anonimo"));
   });
 });
 

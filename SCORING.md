@@ -4,129 +4,109 @@
 
 Cumple la promesa del [README.md § Sistema de scoring](README.md#sistema-de-scoring).
 
-**Reglas:** 28.
-
-> El `score` y el `verdict` se calculan **siempre** vía este motor, incluso desde la tool `smart_evaluation` que orquesta con LLM. El LLM **nunca** los toca: solo decide qué tools llamar y cómo normalizar inputs ambiguos. Los `Facts` que alimentan al motor vienen únicamente de las tools individuales — auditables y citables.
+**Modelo:** positivo + cortes. **Score ∈ [0, 90]**. **Reglas:** 24.
 
 ## Convenciones
 
-- **Determinismo.** Todas las reglas son funciones puras sobre `Facts`. Sin LLM, sin `Math.random`, sin `Date.now`. Mismo input → mismo output (validado por test de 1000 invocaciones en [`engine.test.ts`](mcp-server/src/scoring/__tests__/engine.test.ts)).
-- **Pesos.** Integer en `[-70, +50]`. Pesos negativos penalizan; positivos premian. Ningún peso es `0`. Calibración alineada con el simulador `scoring_extension_chrome_v3.xlsx`.
-- **Perfil del sitio.** Cada regla declara `appliesToNonCmf`: `true` cuando aplica a sitios que no requieren regulación CMF (señales generales: phishing, SSL, dominio joven, SII), `false` para reglas CMF-only (listados oficiales CMF, RPSF, promesas de rentabilidad). El orquestador `full_evaluation` selecciona el perfil según `tipoEntidad` clasificado en Etapa 3.
-- **Auditabilidad.** Cada regla incluye un `fundamento` (cita o argumento corto) que justifica el peso. Reglas no documentadas no se aceptan en PR.
-- **Referencia normativa.** Reglas en categorías `regulator|whitelist|blacklist|entity` deben citar al menos una entrada del catálogo legal ([`mcp-server/src/lib/legal-catalog.ts`](mcp-server/src/lib/legal-catalog.ts)). El test [`legal-refs.test.ts`](mcp-server/src/scoring/__tests__/legal-refs.test.ts) lo exige.
-- **Info reasons.** Las tools también emiten `Reason` con `kind: "info"` y `weight: 0` por cada fuente verificada que respondió OK pero no disparó una regla — auditables igual que las reglas, sin afectar el score. Se construyen vía `infoReason()` en [`mcp-server/src/scoring/info-reasons.ts`](mcp-server/src/scoring/info-reasons.ts). Reasons sin `kind` se interpretan como `"signal"`.
-- **Cobertura.** Cada regla tiene un test afirmativo y uno negativo en [`mcp-server/src/scoring/__tests__/rules.test.ts`](mcp-server/src/scoring/__tests__/rules.test.ts). Cobertura objetivo 100% sobre `rules.ts` y `engine.ts` (CLAUDE.md).
+- **Determinismo.** Todas las reglas son funciones puras sobre `Facts`. Sin LLM, sin `Math.random`, sin `Date.now`. Mismo input → mismo output.
+- **Pesos.** Integer en `[0, 90]`. Solo positivos. Las "señales malas" del modelo previo se trazan como info-reasons (`weight=0`) sin afectar el score.
+- **Tipos de regla.**
+  - `cut_down` (id `cut.down.*`): hit fija `score=0` y detiene la cadena (Crítico).
+  - `cut_up` (id `cut.up.*`): hit fija `score=90` y detiene la cadena (Muy confiable).
+  - `gateway` (id `gateway.*`): bonus alto (RPSF revisión, FinteChile, banco/AGF reconocidos). Suma normal y permite seguir acumulando.
+  - `accumulable` (id `acc.*`): bonus modesto. Suma normal. Score se clampa a `[0, 90]`.
+- **Auditabilidad.** Cada regla incluye un `fundamento` que justifica el peso y al menos una referencia normativa para `regulator|whitelist|blacklist|entity`.
+- **Info reasons.** Las tools también emiten `Reason` con `kind: "info"` y `weight: 0` por cada fuente verificada que respondió OK pero no disparó una regla. Reasons sin `kind` se interpretan como `"signal"`.
 
 ## Catálogo
 
-| id | category | weight | aplica No-CMF | reason | fundamento | referencia normativa |
-|---|---|---:|:---:|---|---|---|
-| `domain.young_lt7d` | domain | -40 | ✓ | Dominio registrado hace menos de 7 días | Dominios <7d correlacionan fuertemente con campañas activas de phishing/scam; vida media de un dominio fraudulento es típicamente <30d. | — |
-| `domain.young_lt30d` | domain | -25 | ✓ | Dominio registrado hace menos de 30 días (≥7) | Dominios <30d son incompatibles con un negocio financiero establecido. Excluye <7d (regla anterior) para evitar doble cómputo. | — |
-| `domain.ssl_lets_encrypt_recent` | domain | -10 | ✓ | Certificado SSL emitido por Let's Encrypt sobre dominio reciente | Let's Encrypt es legítimo, pero su disponibilidad gratuita + automatizada hace que la mayoría de scams emitan SSL ahí. Combinado con dominio <90d es señal débil pero notoria. | — |
-| `domain.ssl_self_signed` | domain | -30 | ✓ | Certificado SSL autofirmado | Un sitio que pide datos personales con SSL autofirmado no pasa la verificación de cadena de confianza; típico de servidores improvisados o intencionalmente opacos. | — |
-| `domain.ssl_invalid` | domain | -40 | ✓ | Certificado SSL inválido o expirado | SSL inválido o vencido invalida cualquier promesa de seguridad de transporte y suele indicar abandono operacional o fraude descuidado. | — |
-| `domain.ssl_missing` | domain | -40 | ✓ | Sitio sin certificado SSL | Cualquier sitio que reciba RUT/credenciales sin TLS no es viable como contraparte financiera, ni siquiera en 2026. | — |
-| `domain.too_many_redirects` | domain | -15 | ✓ | Cadena de redirecciones >3 hops | Cadenas largas de redirección entre dominios opacan el destino real y son típicas de campañas de scam que lavan tráfico via cloaking. ≥4 hops es señal débil pero notoria. | — |
-| `blacklist.cmf_plataformas_no_reguladas` | blacklist | -70 | — | Aparece en CMF — Plataformas de Inversión No Reguladas | La CMF publica este listado tras detectar oferta pública de inversión sin autorización. Inclusión = banderazo regulatorio chileno explícito. | [`CL-LEY-18045-art-27`](https://www.bcn.cl/leychile/navegar?idNorma=29472)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md)<br>[`CMF-ALERTAS-PIF`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
-| `blacklist.cmf_creditos_fraudulentos` | blacklist | -70 | — | Aparece en CMF — Créditos Fraudulentos | Listado oficial CMF de operadores de crédito fraudulento. Inclusión es señal regulatoria dura. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438)<br>[`CMF-ALERTAS-CF`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
-| `blacklist.phishtank` | blacklist | -40 | ✓ | URL reportada en PhishTank | PhishTank confirma reportes vía verificación comunitaria. False positives son raros en URLs verified. | [`EXT-PHISHTANK-TOS`](https://www.phishtank.com/terms_of_use.php) |
-| `blacklist.cmf_apps_creditos_no_reguladas` | blacklist | -70 | — | Aparece en CMF — Apps de Créditos No Reguladas | Listado oficial CMF de apps de crédito sin autorización formal. Misma fuerza señalética que Plataformas / Créditos Fraudulentos. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438)<br>[`CMF-ALERTAS-AC`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
-| `blacklist.cmf_otras_entidades_no_reguladas` | blacklist | -70 | — | Aparece en CMF — Otras Entidades No Reguladas | Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado que no encajan en los otros 3 listados. | [`CL-LEY-21521-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-ALERTAS-OE`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
-| `blacklist.urlhaus` | blacklist | -30 | ✓ | URL reportada en URLhaus | URLhaus de abuse.ch lista URLs activas asociadas a malware. Hit confirma intencionalidad maliciosa, peso menor que listados regulatorios chilenos pero suma. | [`EXT-URLHAUS-TOS`](https://urlhaus.abuse.ch/api/) |
-| `whitelist.rpsf_autorizada` | whitelist | +50 | — | Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros) | Estado 'autorizada' bajo Ley 21.521 implica revisión formal CMF aprobada. Es la señal positiva más fuerte de la lista de la CMF. | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md)<br>[`CMF-RPSF-LISTADO`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65968.html) |
-| `whitelist.rpsf_en_revision` | whitelist | +10 | — | Solicitud presente en RPSF, en revisión por CMF | Período transitorio Ley 21.521: la entidad opera legalmente mientras CMF resuelve. No es garantía pero es señal positiva intermedia (179 autorizadas + 300 en revisión a feb 2025). | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-RPSF-LISTADO`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65968.html) |
-| `whitelist.fintechile_miembro` | whitelist | +15 | — | Miembro activo de FinteChile | Membresía gremial implica al menos un nivel mínimo de escrutinio entre pares; señal positiva intermedia mientras la Ley Fintech termina de implementarse. | [`CL-LEY-21521`](https://www.bcn.cl/leychile/navegar?idNorma=1188983) |
-| `dns.registrant_pais_chile` | dns | +5 | ✓ | Registrante público con país declarado CL | Que el registrante tenga país CL en WHOIS/RDAP no garantiza legitimidad pero descarta operadores extranjeros opacos; señal positiva débil compatible con un servicio financiero local. | [`EXT-NIC-CL-POL`](https://www.nic.cl/normativa/) |
-| `dns.registrant_anonimo` | dns | -15 | ✓ | Registrante WHOIS/RDAP anonimizado vía privacy proxy | Privacidad proxy es legítima en general, pero un proveedor financiero serio publica datos verificables del registrante. Anonimato + servicio financiero = bandera de opacidad. | — |
-| `entity.sii_activo` | entity | +10 | ✓ | Inicio de actividades vigente en el SII | Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. Necesario, no suficiente. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
-| `entity.sii_suspendido` | entity | -20 | ✓ | Estado 'suspendido' en el SII | Suspensión SII es señal regulatoria dura: la entidad no debería estar realizando operaciones con público mientras esté en ese estado. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
-| `entity.sii_sin_inicio` | entity | -40 | ✓ | Sin inicio de actividades en el SII | Si una empresa que ofrece servicios financieros no figura con inicio de actividades, no existe formalmente en el sistema tributario chileno; es prácticamente concluyente. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
-| `bm.promesa_rentabilidad_irreal` | business_model | -30 | — | Promesas de rentabilidad incompatibles con el mercado regulado | Una rentabilidad anualizada que excede la tasa máxima convencional o promete riesgo cero es contradictoria con el funcionamiento del mercado financiero chileno; señal regulatoria dura cuando se detecta en oferta pública. | [`CL-LEY-18010`](https://www.bcn.cl/leychile/navegar?idNorma=29438)<br>[`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
-| `bm.estructura_referidos` | business_model | -25 | — | Modelo de ingresos basado en referidos / multinivel | La compensación por reclutamiento (en lugar de venta de servicios) es el patrón estructural de esquemas piramidales; bajo ley chilena (Ley 19.496 + jurisprudencia CMF) es indicio de fraude. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
-| `bm.lenguaje_vago` | business_model | -10 | ✓ | Comunicación con lenguaje aspiracional vago, urgencia artificial | 'Oportunidad única', 'cupos limitados', 'libertad financiera' son tokens recurrentes en marketing fraudulento porque buscan compresión temporal de la decisión y desactivan el escrutinio del usuario. | — |
-| `bm.ausencia_info_legal` | business_model | -15 | ✓ | Sitio sin RUT, razón social ni dirección física | Cualquier prestador de servicios financieros en Chile debe identificarse formalmente. Ausencia simultánea de RUT + razón social + dirección física es incompatible con un negocio financiero legítimo (Ley 19.496 art. 28). | [`CL-LEY-19496-art-17`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
-| `regulator.rpsf_autorizada_y_giro_consistente` | regulator | +25 | — | Autorizada en RPSF con giro tributario consistente con la categoría | RPSF autorizada + giro SII coherente con la actividad declarada (ej. fintech con código 6491/6492 o asesor con 6499) descarta el patrón típico de empresas autorizadas pero operando fuera de su giro. | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md) |
-| `regulator.fintech_no_registrada` | regulator | -30 | — | Operación que se presenta como fintech sin estar inscrita en RPSF | Bajo Ley 21.521 todo prestador de servicios fintech debe registrarse en RPSF (Plataformas, Custodios, Asesores, Iniciadores, Enrutadores). Operar como fintech sin registro es directamente irregular. | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md) |
-| `entity.antiguedad_lt6m` | entity | -10 | ✓ | Empresa con menos de 6 meses desde inicio de actividades | Una entidad que se ofrece como contraparte financiera con menos de 6 meses de existencia formal no ha tenido tiempo de pasar revisiones tributarias ni acumular historial verificable; señal débil pero notoria. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
+| id | tipo | category | weight | reason | fundamento | referencia normativa |
+|---|---|---|---:|---|---|---|
+| `cut.down.blacklist.cmf_plataformas_no_reguladas` | **CORTE ↓** | blacklist | 0 | Aparece en CMF — Plataformas de Inversión No Reguladas | Listado oficial CMF de plataformas que ofrecen inversión sin autorización. Inclusión es banderazo regulatorio explícito. | [`CL-LEY-18045-art-27`](https://www.bcn.cl/leychile/navegar?idNorma=29472)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md)<br>[`CMF-ALERTAS-PIF`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
+| `cut.down.blacklist.cmf_creditos_fraudulentos` | **CORTE ↓** | blacklist | 0 | Aparece en CMF — Créditos Fraudulentos | Listado oficial CMF de operadores de crédito fraudulento. Señal regulatoria dura. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438)<br>[`CMF-ALERTAS-CF`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
+| `cut.down.blacklist.cmf_apps_creditos_no_reguladas` | **CORTE ↓** | blacklist | 0 | Aparece en CMF — Apps de Créditos No Reguladas | Listado oficial CMF de apps de crédito sin autorización formal. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438)<br>[`CMF-ALERTAS-AC`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
+| `cut.down.blacklist.cmf_otras_entidades_no_reguladas` | **CORTE ↓** | blacklist | 0 | Aparece en CMF — Otras Entidades No Reguladas | Listado oficial CMF que captura ofertas financieras fuera del perímetro regulado. | [`CL-LEY-21521-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-ALERTAS-OE`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65845.html) |
+| `cut.down.blacklist.phishtank` | **CORTE ↓** | blacklist | 0 | URL reportada en PhishTank | PhishTank confirma reportes vía verificación comunitaria. | [`EXT-PHISHTANK-TOS`](https://www.phishtank.com/terms_of_use.php) |
+| `cut.down.blacklist.urlhaus` | **CORTE ↓** | blacklist | 0 | URL reportada en URLhaus (malware) | URLhaus de abuse.ch lista URLs activas asociadas a malware. | [`EXT-URLHAUS-TOS`](https://urlhaus.abuse.ch/api/) |
+| `cut.up.whitelist.rpsf_autorizada` | **CORTE ↑** | whitelist | +90 | Entidad autorizada en RPSF (Ley 21.521) | Estado 'autorizada' implica revisión formal CMF aprobada. Es la señal positiva más fuerte y suficiente para máxima confianza. | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-NCG-514-2024`](../data/normativas/ncg_514_2024.md)<br>[`CMF-RPSF-LISTADO`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65968.html) |
+| `gateway.whitelist.rpsf_en_revision` | GATEWAY | whitelist | +30 | Solicitud presente en RPSF, en revisión por CMF | Período transitorio Ley 21.521: la entidad opera legalmente mientras CMF resuelve. Señal positiva intermedia. | [`CL-LEY-21521-art-5`](https://www.bcn.cl/leychile/navegar?idNorma=1188983)<br>[`CMF-RPSF-LISTADO`](https://www.cmfchile.cl/portal/principal/613/w3-propertyvalue-65968.html) |
+| `gateway.whitelist.fintechile_miembro` | GATEWAY | whitelist | +20 | Miembro activo de FinteChile | Membresía gremial implica escrutinio entre pares; señal positiva intermedia. | [`CL-LEY-21521`](https://www.bcn.cl/leychile/navegar?idNorma=1188983) |
+| `gateway.regulator.banco_reconocido` | GATEWAY | regulator | +50 | Banco reconocido (Ley General de Bancos) | La entidad coincide con un banco fiscalizado bajo la Ley General de Bancos. Los bancos no figuran en el RPSF (Ley 21.521); su régimen es la Ley General de Bancos y la supervisión directa de la CMF. | `CL-DFL-3-1997` *(no en catálogo)* |
+| `gateway.regulator.agf_reconocida` | GATEWAY | regulator | +50 | Administradora General de Fondos / inversión reconocida | La entidad coincide con una AGF / administradora de inversiones bajo Ley 18.045 / 20.712, fiscalizada por la CMF fuera del RPSF. | [`CL-LEY-18045`](https://www.bcn.cl/leychile/navegar?idNorma=29472)<br>`CL-LEY-20712` *(no en catálogo)* |
+| `acc.regulator.giro_consistente` | acumulable | regulator | +10 | Giro tributario consistente con la categoría detectada | El giro SII coincide con la actividad declarada (ej. fintech con código 6491/6492). Descarta el patrón típico de empresas operando fuera de su giro. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
+| `acc.entity.sii_activo` | acumulable | entity | +15 | Inicio de actividades vigente en el SII | Status 'activo' confirma que la persona jurídica existe formalmente y opera bajo el sistema tributario chileno. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
+| `acc.entity.antiguedad_ge_6m` | acumulable | entity | +5 | Empresa activa con ≥6 meses desde inicio de actividades | Antigüedad ≥6m indica historial verificable mínimo en SII; descarta entidades recién creadas. Solo aplica si la entidad está activa en SII. | [`CL-CT-66`](https://www.bcn.cl/leychile/navegar?idNorma=6374) |
+| `acc.domain.age_ge_2y` | acumulable | domain | +10 | Dominio con ≥2 años desde su registro | Antigüedad ≥730 días indica operación sostenida en el tiempo. Incompatible con campañas de fraude de vida media corta. | — |
+| `acc.domain.age_ge_30d` | acumulable | domain | +5 | Dominio con ≥30 días desde su registro (<2 años) | Antigüedad ≥30d filtra dominios recién creados típicos de scams. Excluye ≥2y para evitar doble cómputo. | — |
+| `acc.domain.ssl_valid_reputable` | acumulable | domain | +10 | Certificado SSL válido emitido por CA reputada | Handshake TLS exitoso con cadena válida emitida por CA del top tier (DigiCert, Sectigo, GlobalSign, Google Trust, Amazon, Microsoft, etc.). | — |
+| `acc.domain.no_redirects` | acumulable | domain | +3 | Sin redirecciones HTTP sospechosas (≤3 hops) | Cadenas largas de redirección entre dominios opacan el destino real. Bajo el umbral de cloaking (≥4 hops) es señal positiva débil. | — |
+| `acc.dns.registrant_no_anonimo` | acumulable | dns | +5 | Registrante WHOIS/RDAP no anonimizado | Datos de registrante visibles indican transparencia mínima en el registro del dominio. | — |
+| `acc.dns.registrant_pais_chile` | acumulable | dns | +5 | Registrante con país declarado CL | Country=CL en WHOIS/RDAP no garantiza legitimidad pero descarta operadores extranjeros opacos. Compatible con servicio financiero local. | [`EXT-NIC-CL-POL`](https://www.nic.cl/normativa/) |
+| `acc.bm.info_legal_completa` | acumulable | business_model | +5 | Sitio publica RUT, razón social y dirección física | Identificación formal completa según Ley 19.496. Cualquier prestador legítimo en Chile debe identificarse con estos tres datos. | [`CL-LEY-19496-art-17`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
+| `acc.bm.sin_promesas_irreales` | acumulable | business_model | +3 | Sin promesas de rentabilidad incompatibles con el mercado | El copy del sitio no contiene promesas de rentabilidad sobre la tasa máxima convencional ni 'riesgo cero'. | [`CL-LEY-18010`](https://www.bcn.cl/leychile/navegar?idNorma=29438)<br>[`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
+| `acc.bm.sin_referidos` | acumulable | business_model | +3 | Sin estructura de ingresos basada en referidos / multinivel | El modelo de negocio no compensa por reclutamiento; descarta el patrón estructural de esquemas piramidales. | [`CL-LEY-19496-art-28`](https://www.bcn.cl/leychile/navegar?idNorma=61438) |
+| `acc.bm.lenguaje_tecnico` | acumulable | business_model | +2 | Comunicación con lenguaje técnico apropiado | Sin tokens de urgencia artificial ('cupos limitados', 'oportunidad única'); descarta el patrón de marketing fraudulento. | — |
 
 ## Por categoría
 
-### blacklist (6 reglas, CMF Σ = -350; No-CMF: 2/6 reglas, Σ = -70)
+### blacklist (6 reglas, suma máx acumulable: 0)
 
-- **`blacklist.cmf_plataformas_no_reguladas`** (-70): Aparece en CMF — Plataformas de Inversión No Reguladas *(CMF-only)*
-- **`blacklist.cmf_creditos_fraudulentos`** (-70): Aparece en CMF — Créditos Fraudulentos *(CMF-only)*
-- **`blacklist.phishtank`** (-40): URL reportada en PhishTank
-- **`blacklist.cmf_apps_creditos_no_reguladas`** (-70): Aparece en CMF — Apps de Créditos No Reguladas *(CMF-only)*
-- **`blacklist.cmf_otras_entidades_no_reguladas`** (-70): Aparece en CMF — Otras Entidades No Reguladas *(CMF-only)*
-- **`blacklist.urlhaus`** (-30): URL reportada en URLhaus
+- **`cut.down.blacklist.cmf_plataformas_no_reguladas`** **CORTE ↓** (0): Aparece en CMF — Plataformas de Inversión No Reguladas
+- **`cut.down.blacklist.cmf_creditos_fraudulentos`** **CORTE ↓** (0): Aparece en CMF — Créditos Fraudulentos
+- **`cut.down.blacklist.cmf_apps_creditos_no_reguladas`** **CORTE ↓** (0): Aparece en CMF — Apps de Créditos No Reguladas
+- **`cut.down.blacklist.cmf_otras_entidades_no_reguladas`** **CORTE ↓** (0): Aparece en CMF — Otras Entidades No Reguladas
+- **`cut.down.blacklist.phishtank`** **CORTE ↓** (0): URL reportada en PhishTank
+- **`cut.down.blacklist.urlhaus`** **CORTE ↓** (0): URL reportada en URLhaus (malware)
 
-### business_model (4 reglas, CMF Σ = -80; No-CMF: 2/4 reglas, Σ = -25)
+### business_model (4 reglas, suma máx acumulable: +13)
 
-- **`bm.promesa_rentabilidad_irreal`** (-30): Promesas de rentabilidad incompatibles con el mercado regulado *(CMF-only)*
-- **`bm.estructura_referidos`** (-25): Modelo de ingresos basado en referidos / multinivel *(CMF-only)*
-- **`bm.lenguaje_vago`** (-10): Comunicación con lenguaje aspiracional vago, urgencia artificial
-- **`bm.ausencia_info_legal`** (-15): Sitio sin RUT, razón social ni dirección física
+- **`acc.bm.info_legal_completa`** acumulable (+5): Sitio publica RUT, razón social y dirección física
+- **`acc.bm.sin_promesas_irreales`** acumulable (+3): Sin promesas de rentabilidad incompatibles con el mercado
+- **`acc.bm.sin_referidos`** acumulable (+3): Sin estructura de ingresos basada en referidos / multinivel
+- **`acc.bm.lenguaje_tecnico`** acumulable (+2): Comunicación con lenguaje técnico apropiado
 
-### dns (2 reglas, CMF Σ = -10; No-CMF: 2/2 reglas, Σ = -10)
+### dns (2 reglas, suma máx acumulable: +10)
 
-- **`dns.registrant_pais_chile`** (+5): Registrante público con país declarado CL
-- **`dns.registrant_anonimo`** (-15): Registrante WHOIS/RDAP anonimizado vía privacy proxy
+- **`acc.dns.registrant_no_anonimo`** acumulable (+5): Registrante WHOIS/RDAP no anonimizado
+- **`acc.dns.registrant_pais_chile`** acumulable (+5): Registrante con país declarado CL
 
-### domain (7 reglas, CMF Σ = -200; No-CMF: 7/7 reglas, Σ = -200)
+### domain (4 reglas, suma máx acumulable: +28)
 
-- **`domain.young_lt7d`** (-40): Dominio registrado hace menos de 7 días
-- **`domain.young_lt30d`** (-25): Dominio registrado hace menos de 30 días (≥7)
-- **`domain.ssl_lets_encrypt_recent`** (-10): Certificado SSL emitido por Let's Encrypt sobre dominio reciente
-- **`domain.ssl_self_signed`** (-30): Certificado SSL autofirmado
-- **`domain.ssl_invalid`** (-40): Certificado SSL inválido o expirado
-- **`domain.ssl_missing`** (-40): Sitio sin certificado SSL
-- **`domain.too_many_redirects`** (-15): Cadena de redirecciones >3 hops
+- **`acc.domain.age_ge_2y`** acumulable (+10): Dominio con ≥2 años desde su registro
+- **`acc.domain.age_ge_30d`** acumulable (+5): Dominio con ≥30 días desde su registro (<2 años)
+- **`acc.domain.ssl_valid_reputable`** acumulable (+10): Certificado SSL válido emitido por CA reputada
+- **`acc.domain.no_redirects`** acumulable (+3): Sin redirecciones HTTP sospechosas (≤3 hops)
 
-### entity (4 reglas, CMF Σ = -60; No-CMF: 4/4 reglas, Σ = -60)
+### entity (2 reglas, suma máx acumulable: +20)
 
-- **`entity.sii_activo`** (+10): Inicio de actividades vigente en el SII
-- **`entity.sii_suspendido`** (-20): Estado 'suspendido' en el SII
-- **`entity.sii_sin_inicio`** (-40): Sin inicio de actividades en el SII
-- **`entity.antiguedad_lt6m`** (-10): Empresa con menos de 6 meses desde inicio de actividades
+- **`acc.entity.sii_activo`** acumulable (+15): Inicio de actividades vigente en el SII
+- **`acc.entity.antiguedad_ge_6m`** acumulable (+5): Empresa activa con ≥6 meses desde inicio de actividades
 
-### regulator (2 reglas, CMF Σ = -5; No-CMF: 0/2 reglas, Σ = 0)
+### regulator (3 reglas, suma máx acumulable: +110)
 
-- **`regulator.rpsf_autorizada_y_giro_consistente`** (+25): Autorizada en RPSF con giro tributario consistente con la categoría *(CMF-only)*
-- **`regulator.fintech_no_registrada`** (-30): Operación que se presenta como fintech sin estar inscrita en RPSF *(CMF-only)*
+- **`gateway.regulator.banco_reconocido`** GATEWAY (+50): Banco reconocido (Ley General de Bancos)
+- **`gateway.regulator.agf_reconocida`** GATEWAY (+50): Administradora General de Fondos / inversión reconocida
+- **`acc.regulator.giro_consistente`** acumulable (+10): Giro tributario consistente con la categoría detectada
 
-### whitelist (3 reglas, CMF Σ = +75; No-CMF: 0/3 reglas, Σ = 0)
+### whitelist (3 reglas, suma máx acumulable: +50)
 
-- **`whitelist.rpsf_autorizada`** (+50): Entidad autorizada en RPSF (Registro de Prestadores de Servicios Financieros) *(CMF-only)*
-- **`whitelist.rpsf_en_revision`** (+10): Solicitud presente en RPSF, en revisión por CMF *(CMF-only)*
-- **`whitelist.fintechile_miembro`** (+15): Miembro activo de FinteChile *(CMF-only)*
+- **`cut.up.whitelist.rpsf_autorizada`** **CORTE ↑** (+90): Entidad autorizada en RPSF (Ley 21.521)
+- **`gateway.whitelist.rpsf_en_revision`** GATEWAY (+30): Solicitud presente en RPSF, en revisión por CMF
+- **`gateway.whitelist.fintechile_miembro`** GATEWAY (+20): Miembro activo de FinteChile
 
 ## Niveles de confianza
 
-El score consolidado del orquestador `full_evaluation` se mapea a un nivel 1-5 con etiqueta humana. Hay **dos escalas independientes** porque el rango de score posible cambia con el perfil del sitio (CMF: `[-745, +115]`; No-CMF: `[-380, +15]`). Mismo score puede caer en niveles distintos según el perfil aplicado.
-
-### Escala CMF (rango posible: -745 a +115)
+El score consolidado del orquestador `full_evaluation` se mapea a un nivel 1-5 con etiqueta humana sobre una **escala única**:
 
 | Nivel | Etiqueta | Umbral mínimo (≥) |
 |:---:|---|---:|
-| 5 | Muy confiable | +40 |
-| 4 | Confiable | 0 |
-| 3 | Neutro | -25 |
-| 2 | Riesgoso | -50 |
-| 1 | Crítico | −∞ (sentinela) |
+| 5 | Muy confiable | +90 |
+| 4 | Confiable | +60 |
+| 3 | Neutro | +30 |
+| 2 | Riesgoso | +1 |
+| 1 | Crítico | −∞ (sentinela, score=0 vía cut_down) |
 
-### Escala No-CMF (rango posible: -380 a +15)
-
-| Nivel | Etiqueta | Umbral mínimo (≥) |
-|:---:|---|---:|
-| 5 | Muy confiable | +15 |
-| 4 | Confiable | +5 |
-| 3 | Neutro | -10 |
-| 2 | Riesgoso | -50 |
-| 1 | Crítico | −∞ (sentinela) |
-
-> El nivel 1 (Crítico) absorbe todo lo que esté por debajo del umbral del nivel 2 en cada escala (umbral `-9999` es sentinela).
+> El nivel 1 (Crítico) coincide con `score=0`, alcanzable solo vía `cut_down` (blacklist hit).
 
 ## Compatibilidad con `verdict` legacy
 
