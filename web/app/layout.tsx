@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cruce Chile · MCP demo",
+  title: "PrudentIa · Verifica empresas financieras chilenas",
   description:
-    "Cliente web del MCP Cruce Chile: evaluación determinística de URLs, RUTs y entidades con datos oficiales chilenos.",
+    "PrudentIa cruza CMF, SERNAC, NIC Chile y registros oficiales para verificar en segundos si una empresa, fintech o sitio financiero chileno es legítimo.",
 };
 
 export default function RootLayout({
@@ -26,9 +26,9 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="cc min-h-full flex flex-col">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
